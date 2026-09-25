@@ -49,7 +49,11 @@
 ## 📱 Android APK & Git Setup
 
 ### Automated Cloud APK Build via GitHub Actions
-Whenever you push changes to your GitHub repository, the `.github/workflows/build-apk.yml` workflow will automatically build `NuPra Finance.apk` and make it available for download under your repository's **Actions / Releases** tab!
+Whenever you push changes to your GitHub repository, the `.github/workflows/build-apk.yml` workflow will automatically build `NuPra Finance.apk`.
+
+You can install it on your mobile phone in two ways:
+1. **Direct Mobile Release Download**: Go to [GitHub Releases](https://github.com/Prathmatic/NuPra_Finance/releases) and tap **`NuPra Finance.apk`** to download & install directly.
+2. **Workflow Artifacts**: Go to [GitHub Actions](https://github.com/Prathmatic/NuPra_Finance/actions), tap the latest run of **Build NuPra Finance APK**, and download the **`NuPra-Finance-APK`** artifact zip file.
 
 ### Local Development
 ```bash
@@ -71,13 +75,10 @@ git add .
 # 2. Commit
 git commit -m "Update NuPra Finance app"
 
-# 3. Add remote (replace with your GitHub repository URL)
-git remote add origin https://github.com/your-username/nupra-finance.git
-
-# 4. Push to trigger automated APK build
-git push -u origin main
+# 3. Push to trigger automated Cloud APK build
+git push origin main
 ```
-*Note: Your transactions, goals, and user data stay safely preserved in the cloud database!*
+*Note: Your transactions, goals, and user data stay safely preserved across sessions!*
 
 ---
 
