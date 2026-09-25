@@ -1,8 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { 
-  X, Camera, Check, Copy, Link2, Heart, ShieldCheck
-} from 'lucide-react';
+import { X, Camera, Link2, Heart, ShieldCheck, LogOut } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -17,12 +15,10 @@ const AVATAR_PRESETS = [
 ];
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, updateCurrentUserProfile, vault, partner } = useFinance();
+  const { currentUser, updateCurrentUserProfile, vault, partner, signOut } = useFinance();
 
   const [name, setName] = useState(currentUser?.name ?? '');
-  const [email, setEmail] = useState(currentUser?.email ?? '');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? AVATAR_PRESETS[0]);
-  const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -39,18 +35,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     e.preventDefault();
     updateCurrentUserProfile({
       name: name.trim() || currentUser?.name || 'User',
-      email: email.trim() || currentUser?.email || '',
       avatarUrl: avatarUrl || currentUser?.avatarUrl || AVATAR_PRESETS[0],
     });
     onClose();
-  };
-
-  const handleCopyCode = () => {
-    if (vault?.inviteCode) {
-      navigator.clipboard.writeText(vault.inviteCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
   };
 
   return (
@@ -104,10 +91,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm focus:outline-none focus:border-rose-500 transition-all"
-              placeholder="you@gmail.com"
+            <input type="email" value={currentUser?.email ?? ''} readOnly
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/50 border border-white/10 text-slate-400 text-sm focus:outline-none"
+              aria-describedby="verified-email-note"
             />
+            <p id="verified-email-note" className="mt-1 text-[11px] text-slate-500">Verified by Supabase Auth</p>
           </div>
           <button type="submit" className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-90 text-white font-semibold text-sm shadow-md transition-all">
             Save Profile & Photo
@@ -135,32 +123,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </div>
             ) : (
               <div className="p-3 rounded-2xl bg-slate-800/60 border border-white/10 text-xs text-slate-400">
-                Waiting for your partner to verify the emailed invitation code and join.
-              </div>
-            )}
-
-            {vault.inviteCode && (
-              <div className="mt-3 p-3.5 rounded-2xl bg-slate-800/70 border border-white/10 flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-slate-400">Vault Code:</p>
-                  <p className="text-base font-extrabold text-rose-400 tracking-widest">{vault.inviteCode}</p>
-                </div>
-                <button onClick={handleCopyCode}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all">
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'Copied!' : 'Copy'}</span>
-                </button>
+                Invitation sent. Your partner must sign in with the invited email address to join this vault.
               </div>
             )}
           </div>
         )}
 
-        <div className="mt-5 p-3 rounded-2xl bg-slate-950/70 border border-white/5 text-[11px] text-slate-400 flex items-start gap-2.5">
-          <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-          <div>
-            <span className="text-slate-200 font-semibold">Auto-Sync Active: </span>
-            Data syncs between you and your partner every 15 seconds automatically.
+        <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
+            Supabase-secured couple vault
           </div>
+          <button type="button" onClick={signOut} className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-300 hover:bg-rose-500/10 hover:text-rose-300">
+            <LogOut className="h-4 w-4" /> Sign out
+          </button>
         </div>
       </div>
     </div>

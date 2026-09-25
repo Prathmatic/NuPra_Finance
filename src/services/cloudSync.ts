@@ -10,8 +10,8 @@ import {
 } from '../types/finance';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 
-// v2 prefix ensures a completely fresh start — no old mock data is loaded
-const STORAGE_PREFIX = 'nupra_finance_v2';
+// Isolate the Supabase-backed cache from prototype and mock data.
+const STORAGE_PREFIX = 'nupra_finance_supabase_v3';
 const KEYS = {
   CURRENT_USER:  `${STORAGE_PREFIX}_user`,
   VAULT:         `${STORAGE_PREFIX}_vault`,
@@ -26,7 +26,7 @@ const KEYS = {
 
 const syncChannel =
   typeof window !== 'undefined' && 'BroadcastChannel' in window
-    ? new BroadcastChannel('nupra_live_sync_v2')
+    ? new BroadcastChannel('nupra_live_sync_supabase_v3')
     : null;
 
 export const CloudStore = {

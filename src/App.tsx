@@ -13,10 +13,10 @@ import { OnboardingFlow } from './components/auth/OnboardingFlow';
 import { AddTransactionModal } from './components/transactions/AddTransactionModal';
 import { AddGoalModal } from './components/goals/AddGoalModal';
 import { AddStockModal } from './components/stocks/AddStockModal';
-import { Smartphone, Monitor } from 'lucide-react';
+import { Smartphone, Monitor, Loader2 } from 'lucide-react';
 
 const MainContent: React.FC = () => {
-  const { activeTab, isOnboarded, completeOnboarding } = useFinance();
+  const { activeTab, isOnboarded, completeOnboarding, currentUser, isAuthLoading, authError } = useFinance();
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
@@ -24,9 +24,12 @@ const MainContent: React.FC = () => {
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
   const [isMobileFrameMode, setIsMobileFrameMode] = useState(false);
 
-  // Show onboarding if user hasn't set up yet
+  if (isAuthLoading) {
+    return <div className="fixed inset-0 flex items-center justify-center bg-[#070a13] text-slate-300"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+  }
+
   if (!isOnboarded) {
-    return <OnboardingFlow onComplete={completeOnboarding} />;
+    return <OnboardingFlow onComplete={completeOnboarding} initialProfile={currentUser} authError={authError} />;
   }
 
   const renderActiveTab = () => {

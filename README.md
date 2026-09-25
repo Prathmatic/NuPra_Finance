@@ -13,14 +13,14 @@
 1. **Collaborative & Personal Modes**:
    - Seamlessly toggle between **Together (Combined)**, **Nu (Personal)**, and **Pra (Personal)** views.
    - See who logged each transaction with personalized partner avatars and attribution chips.
-2. **Cloud Sync & Decoupled State**:
+2. **Supabase Cloud Sync**:
    - Financial transactions, stock market contributions, goals, and bills are decoupled from Git code.
-   - **Pushes to Git will NEVER overwrite or erase user records**.
-   - Real-time live synchronization across devices and tabs.
-3. **Email Verification & Partner Linking**:
-   - Verify each email with a one-time code before creating a local profile.
-   - Invite one partner by email; their one-time code is bound to that recipient address.
-   - Partner names and photos are shared through the couple vault.
+   - Supabase Realtime plus polling synchronizes the couple vault across devices.
+   - Postgres Row Level Security restricts profiles and finance data to the two vault members.
+3. **Email OTP & Partner Linking**:
+   - Supabase Auth verifies each partner's email with a one-time code.
+   - Invitations are bound to the invited email; a vault accepts at most two accounts.
+   - Both partner profiles and photos are stored in the protected vault workspace.
 4. **Income & Expense Tracking**:
    - Quick logging with instant amount chips.
    - Default color-coded labels: **Salary, Rent, Food, Leisure, Travel, Health, Hobby** + custom label builder with color picker and icons.
@@ -61,7 +61,7 @@ You can install it on your mobile phone in two ways:
 # Install dependencies
 npm install
 
-# Configure email delivery and the shared vault bucket (see below)
+# Configure Supabase (see below)
 Copy-Item .env.example .env.local
 
 # Start local mobile dev server
@@ -71,10 +71,14 @@ npm run dev
 npm run cap:build
 ```
 
-### Email and Sync Configuration
-Create an EmailJS service and template with the variables `to_email`, `to_name`, `from_name`, and `otp_code`. Set its service ID, template ID, and public key in `.env.local`, and set `VITE_KVDB_BUCKET` to a bucket used only by this deployment. The app will not show or accept an invitation unless the code is stored and the email send succeeds.
+### Supabase Setup
+1. Create a Supabase project.
+2. Open **SQL Editor** and run [`supabase/migrations/20260925000100_couple_finance.sql`](supabase/migrations/20260925000100_couple_finance.sql). It creates the tables, two-member limits, invite RPCs, RLS policies, and Realtime publication.
+3. In **Authentication → Email**, enable email sign-in. Edit the Magic Link email template to use `{{ .Token }}` instead of `{{ .ConfirmationURL }}` so Supabase sends a numeric OTP. Configure custom SMTP for real users; Supabase's default mail sender is rate-limited for testing.
+4. Copy the Project URL and anon/publishable key from **Project Settings → API** into `.env.local` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+5. Restart Vite after changing environment variables. For GitHub Actions/APK builds, add the same two `VITE_` values as repository Actions variables.
 
-**Security limitation:** the current KVDB transport is anonymous and is not suitable for private financial records. Vite environment values are included in the client app, so a bucket name is not a secret or an access-control mechanism. Treat this implementation as a prototype; before using real financial data, move email verification, partner membership checks, and vault data to a backend such as Firebase Auth/Firestore with restrictive security rules or Supabase Auth/Postgres with row-level security.
+The browser uses only the publishable anon key. **Never put a Supabase `service_role` or secret key in `.env.local` or the app.** Database RLS enforces access; do not disable it on the migration's tables.
 
 ### Git Workflow
 ```bash
@@ -87,7 +91,7 @@ git commit -m "Update NuPra Finance app"
 # 3. Push to trigger automated Cloud APK build
 git push origin main
 ```
-*Local transactions and goals persist on the device; shared sync requires the configured service above.*
+*Financial records start empty and sync only after a verified account has joined or created a Supabase couple vault.*
 
 ---
 
