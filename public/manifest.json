@@ -1,0 +1,17 @@
+{
+  "short_name": "NuPra Finance",
+  "name": "NuPra Finance — Couple Finance Tracker",
+  "icons": [
+    {
+      "src": "/heart-coin.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/"
+}
