@@ -17,9 +17,9 @@
    - Financial transactions, stock market contributions, goals, and bills are decoupled from Git code.
    - Supabase Realtime plus polling synchronizes the couple vault across devices.
    - Postgres Row Level Security restricts profiles and finance data to the two vault members.
-3. **Phone OTP & Partner Linking**:
-   - Supabase Auth verifies each partner's phone by SMS, limited to `+49` and `+91` numbers.
-   - Invitations are bound to the invited verified phone; a vault accepts at most two accounts.
+3. **Email OTP & Partner Linking**:
+   - Supabase Auth verifies each partner's email with a one-time code.
+   - Invitations are bound to the invited email; a vault accepts at most two accounts.
    - Both partner profiles and photos are stored in the protected vault workspace.
 4. **Income & Expense Tracking**:
    - Quick logging with instant amount chips.
@@ -73,8 +73,10 @@ npm run cap:build
 
 ### Supabase Setup
 1. Create a Supabase project.
-2. Open **SQL Editor** and run [`supabase/migrations/20260925000100_couple_finance.sql`](supabase/migrations/20260925000100_couple_finance.sql), then [`supabase/migrations/20260926000100_phone_auth.sql`](supabase/migrations/20260926000100_phone_auth.sql). The second migration adds phone-based invitations and `+49`/`+91` validation; it replaces the email invite RPCs.
-3. In Supabase **Authentication → Sign In / Providers → Phone**, enable phone sign-in and configure an SMS provider (such as Twilio) with its credentials. Set the OTP length/expiry as desired. Phone SMS auth will not send until a provider is configured.
+2. Open **SQL Editor** and run [`supabase/migrations/20260925000100_couple_finance.sql`](supabase/migrations/20260925000100_couple_finance.sql). It creates the tables, two-member limits, invite RPCs, RLS policies, and Realtime publication.
+3. In **Authentication → Providers → Email**, enable email sign-in.
+   - **Magic Link Template**: Under **Authentication → Email Templates → Magic Link**, set the email body to include `{{ .Token }}` instead of `{{ .ConfirmationURL }}` so Supabase delivers a 6-digit verification code.
+   - **Custom SMTP**: In **Project Settings → Authentication → SMTP Settings** (or **Authentication → Email Settings**), toggle **Enable Custom SMTP** ON. Use a provider such as Resend (`smtp.resend.com`, port 465/587), Brevo, SendGrid, or AWS SES to bypass Supabase's built-in testing rate limits (3-4 emails/hour).
 4. Copy the Project URL and anon/publishable key from **Project Settings → API** into `.env.local` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 5. Restart Vite after changing environment variables. GitHub Actions uses repository variables when set; otherwise it reads these two public values from `.env.example` for the APK build.
 

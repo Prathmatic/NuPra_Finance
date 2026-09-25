@@ -4,7 +4,6 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
-  phone?: string;
   avatarUrl: string;
   partnerCode: string; // unique code this user shares
   vaultId: string;     // couple vault ID they belong to

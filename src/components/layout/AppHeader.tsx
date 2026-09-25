@@ -94,7 +94,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile }) => {
                           {currentUser.name}
                           <span className="text-[10px] px-1.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">You</span>
                         </p>
-                        <p className="text-[11px] text-slate-400 truncate">{currentUser.phone || currentUser.email}</p>
+                        <p className="text-[11px] text-slate-400 truncate">{currentUser.email}</p>
                       </div>
                     </div>
                   </div>
@@ -109,7 +109,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile }) => {
                             {partner.name}
                             <span className="text-[10px] px-1.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">Partner</span>
                           </p>
-                          <p className="text-[11px] text-slate-400 truncate">{partner.phone || partner.email}</p>
+                          <p className="text-[11px] text-slate-400 truncate">{partner.email}</p>
                         </div>
                       </div>
                     </div>

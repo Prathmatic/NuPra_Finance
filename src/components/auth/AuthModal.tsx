@@ -90,12 +90,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Phone number</label>
-            <input type="tel" value={currentUser?.phone ?? ''} readOnly
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Email</label>
+            <input type="email" value={currentUser?.email ?? ''} readOnly
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/50 border border-white/10 text-slate-400 text-sm focus:outline-none"
-              aria-describedby="verified-phone-note"
+              aria-describedby="verified-email-note"
             />
-            <p id="verified-phone-note" className="mt-1 text-[11px] text-slate-500">Verified by Supabase SMS</p>
+            <p id="verified-email-note" className="mt-1 text-[11px] text-slate-500">Verified by Supabase Auth</p>
           </div>
           <button type="submit" className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-90 text-white font-semibold text-sm shadow-md transition-all">
             Save Profile & Photo
@@ -118,12 +118,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <p className="text-sm font-bold text-white">{partner.name}</p>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Connected</span>
                   </div>
-                  <p className="text-xs text-slate-400">{partner.phone || partner.email}</p>
+                  <p className="text-xs text-slate-400">{partner.email}</p>
                 </div>
               </div>
             ) : (
               <div className="p-3 rounded-2xl bg-slate-800/60 border border-white/10 text-xs text-slate-400">
-                Invitation sent. Your partner must sign in with the invited phone number to join this vault.
+                Invitation sent. Your partner must sign in with the invited email address to join this vault.
               </div>
             )}
           </div>
