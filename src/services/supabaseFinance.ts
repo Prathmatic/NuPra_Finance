@@ -33,7 +33,7 @@ export interface PendingPartnerInvite {
   vaultName: string;
   inviterId: string;
   inviterName: string;
-  inviterEmail: string;
+  inviterPhone: string;
   inviterAvatarUrl: string;
   createdAt: string;
 }
@@ -50,29 +50,41 @@ const emptySnapshot = (): FinanceSnapshot => ({
 const toProfile = (row: any, vaultId = ''): UserProfile => ({
   id: row.id,
   name: row.display_name,
-  email: row.email,
+  email: row.email ?? '',
+  phone: row.phone ?? '',
   avatarUrl: row.avatar_url || '',
   partnerCode: '',
   vaultId,
   createdAt: row.created_at,
 });
 
-export async function requestEmailCode(email: string): Promise<void> {
+export const isSupportedPhoneNumber = (phone: string): boolean =>
+  /^\+49[1-9]\d{5,12}$/.test(phone) || /^\+91[6-9]\d{9}$/.test(phone);
+
+export async function requestPhoneCode(phone: string): Promise<void> {
+  const normalizedPhone = phone.trim();
+  if (!isSupportedPhoneNumber(normalizedPhone)) {
+    throw new Error('Use a valid phone number starting with +49 or +91.');
+  }
   const { error } = await getSupabase().auth.signInWithOtp({
-    email: email.trim().toLowerCase(),
+    phone: normalizedPhone,
     options: { shouldCreateUser: true },
   });
   if (error) throw error;
 }
 
-export async function verifyEmailCode(email: string, token: string): Promise<AuthUser> {
+export async function verifyPhoneCode(phone: string, token: string): Promise<AuthUser> {
+  const normalizedPhone = phone.trim();
+  if (!isSupportedPhoneNumber(normalizedPhone)) {
+    throw new Error('Use a valid phone number starting with +49 or +91.');
+  }
   const { data, error } = await getSupabase().auth.verifyOtp({
-    email: email.trim().toLowerCase(),
+    phone: normalizedPhone,
     token: token.trim(),
-    type: 'email',
+    type: 'sms',
   });
   if (error) throw error;
-  if (!data.user) throw new Error('Email verification did not return a user.');
+  if (!data.user) throw new Error('Phone verification did not return a user.');
   return data.user;
 }
 
@@ -93,10 +105,13 @@ export async function signOut(): Promise<void> {
 
 export async function saveProfile(profile: UserProfile): Promise<void> {
   const user = await getSignedInUser();
-  if (!user || user.id !== profile.id) throw new Error('Your Supabase session has expired. Sign in again.');
+  if (!user || user.id !== profile.id || !user.phone || user.phone !== profile.phone) {
+    throw new Error('Your verified phone session has expired. Sign in again.');
+  }
   const { error } = await getSupabase().from('profiles').upsert({
     id: profile.id,
-    email: profile.email.trim().toLowerCase(),
+    email: profile.email || '',
+    phone: user.phone,
     display_name: profile.name.trim(),
     avatar_url: profile.avatarUrl,
   });
@@ -119,19 +134,22 @@ export async function createCoupleVault(
   return data;
 }
 
-export async function invitePartner(vaultId: string, email: string): Promise<void> {
-  const normalizedEmail = email.trim().toLowerCase();
+export async function invitePartner(vaultId: string, phone: string): Promise<void> {
+  const normalizedPhone = phone.trim();
+  if (!isSupportedPhoneNumber(normalizedPhone)) {
+    throw new Error('Use a valid phone number starting with +49 or +91.');
+  }
   const { error: inviteError } = await getSupabase().rpc('create_partner_invite', {
     p_vault_id: vaultId,
-    p_email: normalizedEmail,
+    p_phone: normalizedPhone,
   });
   if (inviteError) throw inviteError;
 
-  const { error: mailError } = await getSupabase().auth.signInWithOtp({
-    email: normalizedEmail,
+  const { error: smsError } = await getSupabase().auth.signInWithOtp({
+    phone: normalizedPhone,
     options: { shouldCreateUser: true },
   });
-  if (mailError) throw mailError;
+  if (smsError) throw smsError;
 }
 
 export async function getMyOwnedVaultId(): Promise<string | null> {
@@ -153,7 +171,7 @@ export async function getPendingPartnerInvites(): Promise<PendingPartnerInvite[]
     vaultName: row.vault_name,
     inviterId: row.inviter_id,
     inviterName: row.inviter_name,
-    inviterEmail: row.inviter_email,
+    inviterPhone: row.inviter_phone,
     inviterAvatarUrl: row.inviter_avatar_url || '',
     createdAt: row.created_at,
   }));
@@ -170,12 +188,12 @@ export async function acceptPartnerInvite(inviteId: string): Promise<string> {
 
 export async function loadWorkspace(): Promise<UserWorkspace> {
   const authUser = await getSignedInUser();
-  if (!authUser?.email) return { currentUser: null, vault: null, snapshot: null };
+  if (!authUser?.phone) return { currentUser: null, vault: null, snapshot: null };
 
   const client = getSupabase();
   const { data: profileRow, error: profileError } = await client
     .from('profiles')
-    .select('id, email, display_name, avatar_url, created_at')
+    .select('id, email, phone, display_name, avatar_url, created_at')
     .eq('id', authUser.id)
     .maybeSingle();
   if (profileError) throw profileError;
@@ -184,7 +202,8 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
       currentUser: {
         id: authUser.id,
         name: authUser.user_metadata?.display_name ?? '',
-        email: authUser.email.toLowerCase(),
+        email: authUser.email ?? '',
+        phone: authUser.phone,
         avatarUrl: authUser.user_metadata?.avatar_url ?? '',
         partnerCode: '',
         vaultId: '',
@@ -221,7 +240,7 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
   const memberIds = (memberRows ?? []).map((row: any) => row.user_id);
   const { data: profileRows, error: profilesError } = await client
     .from('profiles')
-    .select('id, email, display_name, avatar_url, created_at')
+    .select('id, email, phone, display_name, avatar_url, created_at')
     .in('id', memberIds);
   if (profilesError) throw profilesError;
 

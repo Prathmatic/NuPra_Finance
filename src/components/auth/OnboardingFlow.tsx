@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeft, ArrowRight, Camera, Check, Heart, Loader2, Mail, Users,
+  ArrowLeft, ArrowRight, Camera, Check, Heart, Loader2, Phone, Users,
 } from 'lucide-react';
 import type { UserProfile, CoupleVault } from '../../types/finance';
 import {
@@ -10,10 +10,11 @@ import {
   getPendingPartnerInvites,
   getSignedInUser,
   invitePartner,
+  isSupportedPhoneNumber,
   PendingPartnerInvite,
-  requestEmailCode,
+  requestPhoneCode,
   saveProfile,
-  verifyEmailCode,
+  verifyPhoneCode,
 } from '../../services/supabaseFinance';
 import { isSupabaseConfigured } from '../../services/supabaseClient';
 
@@ -33,16 +34,23 @@ const AVATAR_PRESETS = [
 ];
 
 const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+const phoneFromParts = (prefix: string, national: string) => {
+  let digits = national.replace(/\D/g, '');
+  if (prefix === '+49' && digits.startsWith('0')) digits = digits.slice(1);
+  return `${prefix}${digits}`;
+};
 
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, initialProfile, authError }) => {
   const initialProfileId = initialProfile?.id;
   const [step, setStep] = useState<Step>(initialProfile ? 'connect' : 'identity');
   const [profile, setProfile] = useState<UserProfile | null>(initialProfile ?? null);
   const [name, setName] = useState(initialProfile?.name ?? '');
-  const [email, setEmail] = useState(initialProfile?.email ?? '');
+  const [phonePrefix, setPhonePrefix] = useState(initialProfile?.phone?.startsWith('+91') ? '+91' : '+49');
+  const [phoneNumber, setPhoneNumber] = useState(initialProfile?.phone?.replace(/^\+49|^\+91/, '') ?? '');
   const [code, setCode] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(initialProfile?.avatarUrl ?? AVATAR_PRESETS[0]);
-  const [partnerEmail, setPartnerEmail] = useState('');
+  const [partnerPrefix, setPartnerPrefix] = useState('+49');
+  const [partnerNumber, setPartnerNumber] = useState('');
   const [vaultId, setVaultId] = useState(initialProfile?.vaultId ?? '');
   const [invitationSent, setInvitationSent] = useState(false);
   const [invites, setInvites] = useState<PendingPartnerInvite[]>([]);
@@ -74,13 +82,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
           return;
         }
         const user = await getSignedInUser();
-        if (active && user?.email) {
-          setEmail(user.email);
+        if (active && user?.phone) {
+          setPhonePrefix(user.phone.startsWith('+91') ? '+91' : '+49');
+          setPhoneNumber(user.phone.replace(/^\+49|^\+91/, ''));
           setStep('profile');
           setProfile({
             id: user.id,
             name: user.user_metadata?.display_name ?? '',
-            email: user.email.toLowerCase(),
+            email: user.email ?? '',
+            phone: user.phone,
             avatarUrl: user.user_metadata?.avatar_url ?? AVATAR_PRESETS[0],
             partnerCode: '',
             vaultId: '',
@@ -100,17 +110,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
   }, [authError]);
 
   const handleRequestCode = async () => {
-    if (!name.trim() || !email.trim()) {
-      setError('Enter your name and email address.');
+    const phone = phoneFromParts(phonePrefix, phoneNumber);
+    if (!name.trim() || !isSupportedPhoneNumber(phone)) {
+      setError('Enter your name and a valid +49 or +91 phone number.');
       return;
     }
     setLoading(true);
     setError('');
     setNotice('');
     try {
-      await requestEmailCode(email);
+      await requestPhoneCode(phone);
       setStep('verify');
-      setNotice(`A sign-in code was sent to ${email.trim().toLowerCase()}.`);
+      setNotice(`An SMS sign-in code was sent to ${phone}.`);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -122,8 +133,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
     setLoading(true);
     setError('');
     try {
-      const authUser = await verifyEmailCode(email, code);
-      if (authUser.email) setEmail(authUser.email);
+      const phone = phoneFromParts(phonePrefix, phoneNumber);
+      const authUser = await verifyPhoneCode(phone, code);
+      if (authUser.phone) {
+        setPhonePrefix(authUser.phone.startsWith('+91') ? '+91' : '+49');
+        setPhoneNumber(authUser.phone.replace(/^\+49|^\+91/, ''));
+      }
       if (profile && profile.id === authUser.id) {
         const pending = await getPendingPartnerInvites();
         setInvites(pending);
@@ -132,7 +147,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
         setProfile({
           id: authUser.id,
           name: name.trim(),
-          email: (authUser.email ?? email).toLowerCase(),
+          email: authUser.email ?? '',
+          phone: authUser.phone ?? phone,
           avatarUrl,
           partnerCode: '',
           vaultId: '',
@@ -183,12 +199,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
   };
 
   const handleInvitePartner = async () => {
-    if (!profile || !partnerEmail.trim()) {
-      setError('Enter your partner’s email address.');
+    const partnerPhone = phoneFromParts(partnerPrefix, partnerNumber);
+    if (!profile || !isSupportedPhoneNumber(partnerPhone)) {
+      setError('Enter a valid partner phone number starting with +49 or +91.');
       return;
     }
-    if (partnerEmail.trim().toLowerCase() === profile.email.toLowerCase()) {
-      setError('Use a different email address for your partner.');
+    if (partnerPhone === profile.phone) {
+      setError('Use a different phone number for your partner.');
       return;
     }
     setLoading(true);
@@ -197,7 +214,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
       await saveProfile(profile);
       const activeVaultId = vaultId || await createCoupleVault(`${profile.name} & Partner`, 'INR', 0);
       setVaultId(activeVaultId);
-      await invitePartner(activeVaultId, partnerEmail);
+      await invitePartner(activeVaultId, partnerPhone);
       const owner = { ...profile, vaultId: activeVaultId };
       await onComplete(owner, {
         id: activeVaultId,
@@ -209,7 +226,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
         createdAt: new Date().toISOString(),
       });
       setInvitationSent(true);
-      setNotice(`A Supabase sign-in code was sent to ${partnerEmail.trim().toLowerCase()}. Your partner must verify this exact email to join.`);
+      setNotice(`An SMS code was sent to ${partnerPhone}. Your partner must verify this exact number to join.`);
     } catch (inviteError) {
       setError(getErrorMessage(inviteError));
     } finally {
@@ -231,7 +248,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
         partner1: {
           id: invite.inviterId,
           name: invite.inviterName,
-          email: invite.inviterEmail,
+          email: '',
+          phone: invite.inviterPhone,
           avatarUrl: invite.inviterAvatarUrl,
           partnerCode: '',
           vaultId: linkedVaultId,
@@ -250,8 +268,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
   };
 
   const stepTitles: Record<Step, string> = {
-    identity: 'Sign in with email',
-    verify: 'Check your email',
+    identity: 'Sign in with phone',
+    verify: 'Check your SMS',
     profile: 'Set up your profile',
     connect: 'Connect your couple vault',
     invite: 'Invite your partner',
@@ -291,18 +309,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
                 <input value={name} onChange={event => setName(event.target.value)} autoComplete="name" placeholder="Your name" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-rose-500 focus:outline-none" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-300">Email address</label>
-                <input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" placeholder="you@gmail.com" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-rose-500 focus:outline-none" />
+                <label className="mb-1.5 block text-xs font-semibold text-slate-300">Phone number</label>
+                <div className="flex gap-2">
+                  <select value={phonePrefix} onChange={event => setPhonePrefix(event.target.value)} className="rounded-xl border border-white/10 bg-slate-800/80 px-3 text-sm text-white focus:border-rose-500 focus:outline-none">
+                    <option value="+49">+49 Germany</option>
+                    <option value="+91">+91 India</option>
+                  </select>
+                  <input type="tel" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/[^\d\s()-]/g, ''))} autoComplete="tel-national" inputMode="tel" placeholder={phonePrefix === '+49' ? '151 23456789' : '9876543210'} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-800/80 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-rose-500 focus:outline-none" />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">SMS codes available for +49 and +91 numbers.</p>
               </div>
               <button onClick={handleRequestCode} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-50">
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Mail className="h-4 w-4" /> Email me a sign-in code</>}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Phone className="h-4 w-4" /> Text me a sign-in code</>}
               </button>
             </>
           )}
 
           {step === 'verify' && (
             <>
-              <p className="text-center text-sm text-slate-300">{notice || `Enter the code sent to ${email}.`}</p>
+              <p className="text-center text-sm text-slate-300">{notice || `Enter the SMS code sent to ${phoneFromParts(phonePrefix, phoneNumber)}.`}</p>
               <input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-4 text-center text-2xl font-black tracking-[0.3em] text-white placeholder:text-slate-600 focus:border-rose-500 focus:outline-none" />
               <div className="flex gap-3">
                 <button onClick={() => { setError(''); setStep('identity'); }} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300"><ArrowLeft className="h-4 w-4" /> Back</button>
@@ -310,7 +335,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Verify <ArrowRight className="h-4 w-4" /></>}
                 </button>
               </div>
-              <button onClick={handleRequestCode} disabled={loading} className="w-full text-xs text-slate-400 hover:text-white disabled:opacity-40">Send a new code</button>
+              <button onClick={handleRequestCode} disabled={loading} className="w-full text-xs text-slate-400 hover:text-white disabled:opacity-40">Send a new SMS code</button>
             </>
           )}
 
@@ -330,7 +355,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
                 <label className="mb-1.5 block text-xs font-semibold text-slate-300">Your name</label>
                 <input value={name} onChange={event => setName(event.target.value)} autoComplete="name" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-3 text-sm text-white focus:border-rose-500 focus:outline-none" />
               </div>
-              <p className="text-xs text-slate-400">Verified email: {email}</p>
+              <p className="text-xs text-slate-400">Verified phone: {profile?.phone}</p>
               <button onClick={handleSaveProfile} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-50">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Save profile <ArrowRight className="h-4 w-4" /></>}
               </button>
@@ -341,10 +366,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
             <>
               <div className="text-center">
                 <p className="text-sm text-slate-200">Hi {profile?.name}. Link one verified partner to share this vault.</p>
-                <p className="mt-1 text-xs text-slate-400">Signed in as {profile?.email}</p>
+                <p className="mt-1 text-xs text-slate-400">Signed in as {profile?.phone}</p>
               </div>
               <button onClick={() => setStep('invite')} className="flex w-full items-center gap-3 rounded-2xl border border-rose-500/30 bg-rose-950/30 p-4 text-left text-white hover:border-rose-400/60">
-                <Mail className="h-5 w-5 text-rose-400" /><span><strong className="block text-sm">Invite by email</strong><small className="text-xs text-slate-400">Your partner receives a Supabase sign-in code.</small></span>
+                <Phone className="h-5 w-5 text-rose-400" /><span><strong className="block text-sm">Invite by SMS</strong><small className="text-xs text-slate-400">Text a sign-in code to your partner.</small></span>
               </button>
               <button onClick={async () => {
                 setLoading(true);
@@ -353,26 +378,32 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
                   const pending = await getPendingPartnerInvites();
                   setInvites(pending);
                   setStep(pending.length ? 'accept' : 'connect');
-                  if (!pending.length) setNotice('No pending invitation was found for this email.');
+                  if (!pending.length) setNotice('No pending invitation was found for this phone number.');
                 } catch (pendingError) { setError(getErrorMessage(pendingError)); }
                 finally { setLoading(false); }
               }} disabled={loading} className="flex w-full items-center gap-3 rounded-2xl border border-indigo-500/30 bg-indigo-950/30 p-4 text-left text-white hover:border-indigo-400/60 disabled:opacity-50">
-                {loading ? <Loader2 className="h-5 w-5 animate-spin text-indigo-400" /> : <Users className="h-5 w-5 text-indigo-400" />}<span><strong className="block text-sm">Check invitations</strong><small className="text-xs text-slate-400">Look for an invite sent to this email.</small></span>
+                {loading ? <Loader2 className="h-5 w-5 animate-spin text-indigo-400" /> : <Users className="h-5 w-5 text-indigo-400" />}<span><strong className="block text-sm">Check invitations</strong><small className="text-xs text-slate-400">Look for an invite sent to this phone.</small></span>
               </button>
             </>
           )}
 
           {step === 'invite' && (
             <>
-              <p className="text-sm text-slate-300">Your partner signs in with the same email address you enter here. Their verified email is what authorizes joining this vault.</p>
+              <p className="text-sm text-slate-300">Your partner signs in with the exact phone number you invite. Their verified number authorizes joining this vault.</p>
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-300">Partner email</label>
-                <input type="email" value={partnerEmail} onChange={event => setPartnerEmail(event.target.value)} autoComplete="email" placeholder="partner@gmail.com" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-rose-500 focus:outline-none" />
+                <label className="mb-1.5 block text-xs font-semibold text-slate-300">Partner phone number</label>
+                <div className="flex gap-2">
+                  <select value={partnerPrefix} onChange={event => setPartnerPrefix(event.target.value)} className="rounded-xl border border-white/10 bg-slate-800/80 px-3 text-sm text-white focus:border-rose-500 focus:outline-none">
+                    <option value="+49">+49 Germany</option>
+                    <option value="+91">+91 India</option>
+                  </select>
+                  <input type="tel" value={partnerNumber} onChange={event => setPartnerNumber(event.target.value.replace(/[^\d\s()-]/g, ''))} autoComplete="tel" inputMode="tel" placeholder={partnerPrefix === '+49' ? '151 23456789' : '9876543210'} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-800/80 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-rose-500 focus:outline-none" />
+                </div>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setStep('connect')} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300"><ArrowLeft className="h-4 w-4" /> Back</button>
                 <button onClick={handleInvitePartner} disabled={loading} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-50">
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Mail className="h-4 w-4" /> {invitationSent ? 'Resend code' : 'Send invite'}</>}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Phone className="h-4 w-4" /> {invitationSent ? 'Resend SMS' : 'Send invite'}</>}
                 </button>
               </div>
               {invitationSent && <p role="status" className="text-center text-xs text-emerald-300">Invitation sent. This screen stays open until the partner verifies and joins.</p>}
@@ -381,7 +412,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
 
           {step === 'accept' && (
             <>
-              <p className="text-center text-sm text-slate-300">Invitations for {profile?.email}</p>
+              <p className="text-center text-sm text-slate-300">Invitations for {profile?.phone}</p>
               {invites.map(invite => (
                 <div key={invite.inviteId} className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="flex items-center gap-3">
