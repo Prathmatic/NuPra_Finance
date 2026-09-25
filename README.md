@@ -76,7 +76,7 @@ npm run cap:build
 2. Open **SQL Editor** and run [`supabase/migrations/20260925000100_couple_finance.sql`](supabase/migrations/20260925000100_couple_finance.sql). It creates the tables, two-member limits, invite RPCs, RLS policies, and Realtime publication.
 3. In **Authentication → Email**, enable email sign-in. Edit the Magic Link email template to use `{{ .Token }}` instead of `{{ .ConfirmationURL }}` so Supabase sends a numeric OTP. Configure custom SMTP for real users; Supabase's default mail sender is rate-limited for testing.
 4. Copy the Project URL and anon/publishable key from **Project Settings → API** into `.env.local` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-5. Restart Vite after changing environment variables. For GitHub Actions/APK builds, add the same two `VITE_` values as repository Actions variables.
+5. Restart Vite after changing environment variables. GitHub Actions uses repository variables when set; otherwise it reads these two public values from `.env.example` for the APK build.
 
 The browser uses only the publishable anon key. **Never put a Supabase `service_role` or secret key in `.env.local` or the app.** Database RLS enforces access; do not disable it on the migration's tables.
 

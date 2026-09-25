@@ -43,10 +43,17 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: |
+          if [ -z "$VITE_SUPABASE_URL" ]; then
+            VITE_SUPABASE_URL="$(sed -n 's/^[[:space:]]*VITE_SUPABASE_URL[[:space:]]*=[[:space:]]*//p' .env.example | head -n 1)"
+          fi
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            VITE_SUPABASE_ANON_KEY="$(sed -n 's/^[[:space:]]*VITE_SUPABASE_ANON_KEY[[:space:]]*=[[:space:]]*//p' .env.example | head -n 1)"
+          fi
           if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
-            echo "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in GitHub Actions variables."
+            echo "Configure Supabase values in .env.example or GitHub Actions variables."
             exit 1
           fi
+          export VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY
           npm run build
 
       - name: Sync Capacitor Android
