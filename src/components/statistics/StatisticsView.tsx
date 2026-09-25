@@ -46,7 +46,7 @@ export const StatisticsView: React.FC = () => {
       if (!monthMap[monthKey]) {
         monthMap[monthKey] = { month: monthKey, myIncome: 0, myExpense: 0, partnerIncome: 0, partnerExpense: 0 };
       }
-      if (t.userId === currentUser.id) {
+      if (t.userId === currentUser!.id) {
         if (t.type === 'income') monthMap[monthKey].myIncome += t.amount;
         else monthMap[monthKey].myExpense += t.amount;
       } else {
@@ -58,7 +58,7 @@ export const StatisticsView: React.FC = () => {
       if (!yearMap[yearKey]) {
         yearMap[yearKey] = { year: yearKey, myIncome: 0, myExpense: 0, partnerIncome: 0, partnerExpense: 0 };
       }
-      if (t.userId === currentUser.id) {
+      if (t.userId === currentUser!.id) {
         if (t.type === 'income') yearMap[yearKey].myIncome += t.amount;
         else yearMap[yearKey].myExpense += t.amount;
       } else {
@@ -147,12 +147,12 @@ export const StatisticsView: React.FC = () => {
     let partnerStock = 0;
 
     stocks.forEach(s => {
-      if (s.userId === currentUser.id) myStock += s.investedAmount;
+      if (s.userId === currentUser!.id) myStock += s.investedAmount;
       else partnerStock += s.investedAmount;
     });
 
     return [
-      { name: `${currentUser.name}'s Capital`, value: myStock, color: '#f43f5e' },
+      { name: `${currentUser!.name}'s Capital`, value: myStock, color: '#f43f5e' },
       { name: `${partner?.name || 'Partner'}'s Capital`, value: partnerStock, color: '#6366f1' },
     ];
   }, [stocks, currentUser, partner]);
@@ -221,7 +221,7 @@ export const StatisticsView: React.FC = () => {
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
               />
               <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-              <Bar dataKey="mySaving" name={`${currentUser.name} Saving`} fill="#f43f5e" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="mySaving" name={`${currentUser!.name} Saving`} fill="#f43f5e" radius={[6, 6, 0, 0]} />
               <Bar dataKey="partnerSaving" name={`${partnerName} Saving`} fill="#6366f1" radius={[6, 6, 0, 0]} />
               <Bar dataKey="togetherSaving" name="Together Saving" fill="#10b981" radius={[6, 6, 0, 0]} />
             </BarChart>
@@ -258,7 +258,7 @@ export const StatisticsView: React.FC = () => {
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
               />
               <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-              <Bar dataKey="myExpense" name={`${currentUser.name} Expense`} fill="#fb7185" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="myExpense" name={`${currentUser!.name} Expense`} fill="#fb7185" radius={[6, 6, 0, 0]} />
               <Bar dataKey="partnerExpense" name={`${partnerName} Expense`} fill="#818cf8" radius={[6, 6, 0, 0]} />
               <Bar dataKey="togetherExpense" name="Together Total Expense" fill="#f59e0b" radius={[6, 6, 0, 0]} />
             </BarChart>

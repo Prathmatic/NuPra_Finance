@@ -64,7 +64,7 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
           </div>
           <div className="text-right">
             <p className="text-[11px] text-slate-400">Contributor:</p>
-            <p className="text-xs font-semibold text-white">{currentUser.name}</p>
+            <p className="text-xs font-semibold text-white">{currentUser!.name}</p>
           </div>
         </div>
 

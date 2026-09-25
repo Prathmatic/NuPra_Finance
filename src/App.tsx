@@ -9,19 +9,25 @@ import { StockInvestmentView } from './components/stocks/StockInvestmentView';
 import { BillsView } from './components/bills/BillsView';
 import { StatisticsView } from './components/statistics/StatisticsView';
 import { AuthModal } from './components/auth/AuthModal';
+import { OnboardingFlow } from './components/auth/OnboardingFlow';
 import { AddTransactionModal } from './components/transactions/AddTransactionModal';
 import { AddGoalModal } from './components/goals/AddGoalModal';
 import { AddStockModal } from './components/stocks/AddStockModal';
 import { Smartphone, Monitor } from 'lucide-react';
 
 const MainContent: React.FC = () => {
-  const { activeTab } = useFinance();
+  const { activeTab, isOnboarded, completeOnboarding } = useFinance();
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [isAddGoalOpen, setIsAddGoalOpen] = useState(false);
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
   const [isMobileFrameMode, setIsMobileFrameMode] = useState(false);
+
+  // Show onboarding if user hasn't set up yet
+  if (!isOnboarded) {
+    return <OnboardingFlow onComplete={completeOnboarding} />;
+  }
 
   const renderActiveTab = () => {
     switch (activeTab) {
@@ -56,25 +62,24 @@ const MainContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col items-center justify-start">
-      {/* Top Mobile / Desktop Frame Mode Switcher for Demo */}
+      {/* Top bar */}
       <div className="w-full bg-slate-950/90 border-b border-white/5 py-1.5 px-4 hidden md:flex items-center justify-between text-xs text-slate-400">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>NuPra Finance • Mobile App (NuPra Finance.apk)</span>
+          <span>NuPra Finance · Mobile App</span>
         </div>
         <div className="flex items-center gap-2">
-          <span>View Container:</span>
+          <span>View:</span>
           <button
             onClick={() => setIsMobileFrameMode(!isMobileFrameMode)}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all font-semibold"
           >
             {isMobileFrameMode ? <Monitor className="w-3.5 h-3.5" /> : <Smartphone className="w-3.5 h-3.5" />}
-            <span>{isMobileFrameMode ? 'Full Width' : 'Mobile Frame Preview'}</span>
+            <span>{isMobileFrameMode ? 'Full Width' : 'Mobile Frame'}</span>
           </button>
         </div>
       </div>
 
-      {/* Main Container: Mobile phone frame or responsive full width */}
       <div
         className={`w-full min-h-screen transition-all duration-300 flex flex-col relative ${
           isMobileFrameMode
@@ -82,21 +87,14 @@ const MainContent: React.FC = () => {
             : 'max-w-2xl bg-[#0b0f19]'
         }`}
       >
-        {/* App Sticky Header */}
-        <AppHeader
-          onOpenProfile={() => setIsAuthOpen(true)}
-          onOpenAddModal={() => setIsAddTxOpen(true)}
-        />
+        <AppHeader onOpenProfile={() => setIsAuthOpen(true)} onOpenAddModal={() => setIsAddTxOpen(true)} />
 
-        {/* Dynamic Tab Body */}
         <main className="flex-1 p-4 overflow-y-auto no-scrollbar">
           {renderActiveTab()}
         </main>
 
-        {/* Bottom Mobile Navigation Bar */}
         <MobileNavbar onOpenAddModal={() => setIsAddTxOpen(true)} />
 
-        {/* Modals */}
         <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
         <AddTransactionModal isOpen={isAddTxOpen} onClose={() => setIsAddTxOpen(false)} />
         <AddGoalModal isOpen={isAddGoalOpen} onClose={() => setIsAddGoalOpen(false)} />

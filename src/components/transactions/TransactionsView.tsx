@@ -59,7 +59,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
       }
 
       // User filter
-      if (selectedUser === 'me' && t.userId !== currentUser.id) return false;
+      if (selectedUser === 'me' && t.userId !== currentUser!.id) return false;
       if (selectedUser === 'partner' && partner && t.userId !== partner.id) return false;
 
       // Type filter
@@ -187,7 +187,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                 className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-white/10 text-white text-xs"
               >
                 <option value="all">Everyone (Couple)</option>
-                <option value="me">{currentUser.name} (Me)</option>
+                <option value="me">{currentUser!.name} (Me)</option>
                 {partner && <option value="partner">{partner.name} (Partner)</option>}
               </select>
             </div>

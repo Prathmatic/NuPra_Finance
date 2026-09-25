@@ -17,9 +17,10 @@
    - Financial transactions, stock market contributions, goals, and bills are decoupled from Git code.
    - **Pushes to Git will NEVER overwrite or erase user records**.
    - Real-time live synchronization across devices and tabs.
-3. **User Authentication & Photo Upload**:
-   - Sign up/in and upload your own custom photo or pick couple presets.
-   - Shareable Couple Vault invite codes (e.g. `NUPRA-2026`) to link your partner's device in one tap.
+3. **Email Verification & Partner Linking**:
+   - Verify each email with a one-time code before creating a local profile.
+   - Invite one partner by email; their one-time code is bound to that recipient address.
+   - Partner names and photos are shared through the couple vault.
 4. **Income & Expense Tracking**:
    - Quick logging with instant amount chips.
    - Default color-coded labels: **Salary, Rent, Food, Leisure, Travel, Health, Hobby** + custom label builder with color picker and icons.
@@ -60,12 +61,20 @@ You can install it on your mobile phone in two ways:
 # Install dependencies
 npm install
 
+# Configure email delivery and the shared vault bucket (see below)
+Copy-Item .env.example .env.local
+
 # Start local mobile dev server
 npm run dev
 
 # Build production assets and sync Android
 npm run cap:build
 ```
+
+### Email and Sync Configuration
+Create an EmailJS service and template with the variables `to_email`, `to_name`, `from_name`, and `otp_code`. Set its service ID, template ID, and public key in `.env.local`, and set `VITE_KVDB_BUCKET` to a bucket used only by this deployment. The app will not show or accept an invitation unless the code is stored and the email send succeeds.
+
+**Security limitation:** the current KVDB transport is anonymous and is not suitable for private financial records. Vite environment values are included in the client app, so a bucket name is not a secret or an access-control mechanism. Treat this implementation as a prototype; before using real financial data, move email verification, partner membership checks, and vault data to a backend such as Firebase Auth/Firestore with restrictive security rules or Supabase Auth/Postgres with row-level security.
 
 ### Git Workflow
 ```bash
@@ -78,7 +87,7 @@ git commit -m "Update NuPra Finance app"
 # 3. Push to trigger automated Cloud APK build
 git push origin main
 ```
-*Note: Your transactions, goals, and user data stay safely preserved across sessions!*
+*Local transactions and goals persist on the device; shared sync requires the configured service above.*
 
 ---
 

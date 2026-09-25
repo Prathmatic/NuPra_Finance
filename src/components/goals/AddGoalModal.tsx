@@ -41,8 +41,8 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
       targetDate,
       color,
       icon,
-      createdByUserId: currentUser.id,
-      createdByUserName: currentUser.name,
+      createdByUserId: currentUser!.id,
+      createdByUserName: currentUser!.name,
       isShared: true,
       notes: notes.trim() || undefined,
     });

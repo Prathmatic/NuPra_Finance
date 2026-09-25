@@ -48,7 +48,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Filter transactions based on viewMode ('both' | 'me' | 'partner')
   const filteredTxs = useMemo(() => {
     return transactions.filter(tx => {
-      if (viewMode === 'me') return tx.userId === currentUser.id;
+      if (viewMode === 'me') return tx.userId === currentUser!.id;
       if (viewMode === 'partner' && partner) return tx.userId === partner.id;
       return true; // 'both'
     });
@@ -67,7 +67,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           income += t.amount;
         } else {
           expense += t.amount;
-          if (t.userId === currentUser.id) {
+          if (t.userId === currentUser!.id) {
             myExp += t.amount;
           } else {
             partnerExp += t.amount;
@@ -86,7 +86,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const monthlySavings = monthlyIncome - monthlyExpense;
   const savingsRate = monthlyIncome > 0 ? Math.round((monthlySavings / monthlyIncome) * 100) : 0;
-  const budgetLimit = vault.monthlyBudget || 120000;
+  const budgetLimit = vault!.monthlyBudget || 120000;
   const budgetUsedPercent = Math.min(100, Math.round((monthlyExpense / budgetLimit) * 100));
 
   // Current month stocks total
@@ -97,7 +97,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     stocks.filter(s => s.monthYear === currentMonthPrefix).forEach(s => {
       total += s.investedAmount;
-      if (s.userId === currentUser.id) {
+      if (s.userId === currentUser!.id) {
         myStock += s.investedAmount;
       } else {
         partnerStock += s.investedAmount;
@@ -122,7 +122,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase font-extrabold tracking-widest text-rose-400">
-              {viewMode === 'both' ? 'Shared Couple Balance' : viewMode === 'me' ? `${currentUser.name}'s Personal` : `${partner?.name}'s Personal`}
+              {viewMode === 'both' ? 'Shared Couple Balance' : viewMode === 'me' ? `${currentUser!.name}'s Personal` : `${partner?.name}'s Personal`}
             </span>
           </div>
           <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/10 font-medium">
@@ -176,8 +176,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {viewMode === 'both' && partner && (
           <div className="mt-3.5 pt-3 border-t border-white/5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
-              <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-5 h-5 rounded-full object-cover ring-1 ring-rose-500" />
-              <span className="text-slate-300 font-medium">{currentUser.name}:</span>
+              <img src={currentUser!.avatarUrl} alt={currentUser!.name} className="w-5 h-5 rounded-full object-cover ring-1 ring-rose-500" />
+              <span className="text-slate-300 font-medium">{currentUser!.name}:</span>
               <span className="text-rose-400 font-bold">{formatCurrency(myExpense, currency)}</span>
             </div>
             <div className="h-3 w-px bg-white/10" />
@@ -260,7 +260,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {/* Individual split */}
         {partner && (
           <div className="mt-2.5 flex items-center justify-around text-xs text-slate-400 px-1">
-            <span>{currentUser.name}: <strong className="text-slate-200">{formatCurrency(monthStocks.myStock, currency)}</strong></span>
+            <span>{currentUser!.name}: <strong className="text-slate-200">{formatCurrency(monthStocks.myStock, currency)}</strong></span>
             <span>•</span>
             <span>{partner.name}: <strong className="text-slate-200">{formatCurrency(monthStocks.partnerStock, currency)}</strong></span>
           </div>

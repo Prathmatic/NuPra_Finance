@@ -24,11 +24,11 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
   const [ticker, setTicker] = useState('');
   const [investedAmount, setInvestedAmount] = useState('');
   const [shares, setShares] = useState('');
-  const [investorId, setInvestorId] = useState(currentUser.id);
+  const [investorId, setInvestorId] = useState(currentUser?.id ?? '');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
 
-  if (!isOpen) return null;
+  if (!isOpen || !currentUser) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,15 +161,15 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setInvestorId(currentUser.id)}
+                onClick={() => setInvestorId(currentUser!.id)}
                 className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
-                  investorId === currentUser.id
+                  investorId === currentUser!.id
                     ? 'border-indigo-500 bg-indigo-500/20 text-white'
                     : 'border-white/5 bg-slate-800/60 text-slate-400'
                 }`}
               >
-                <img src={currentUser.avatarUrl} alt="Me" className="w-6 h-6 rounded-full object-cover" />
-                <span className="text-xs font-semibold">{currentUser.name} (Me)</span>
+                <img src={currentUser!.avatarUrl} alt="Me" className="w-6 h-6 rounded-full object-cover" />
+                <span className="text-xs font-semibold">{currentUser!.name} (Me)</span>
               </button>
 
               {partner && (

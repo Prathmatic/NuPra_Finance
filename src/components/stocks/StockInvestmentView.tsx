@@ -41,7 +41,7 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
 
     stocks.filter(s => s.monthYear === selectedMonth).forEach(s => {
       totalMonth += s.investedAmount;
-      if (s.userId === currentUser.id) {
+      if (s.userId === currentUser!.id) {
         myMonth += s.investedAmount;
       } else {
         partnerMonth += s.investedAmount;
@@ -62,7 +62,7 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
 
     stocks.forEach(s => {
       totalAllTime += s.investedAmount;
-      if (s.userId === currentUser.id) {
+      if (s.userId === currentUser!.id) {
         myTotal += s.investedAmount;
       } else {
         partnerTotal += s.investedAmount;
@@ -142,7 +142,7 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
                 <div
                   className="h-full bg-rose-500 transition-all duration-500"
                   style={{ width: `${monthStats.myPct}%` }}
-                  title={`${currentUser.name}: ${monthStats.myPct}%`}
+                  title={`${currentUser!.name}: ${monthStats.myPct}%`}
                 />
                 <div
                   className="h-full bg-indigo-500 transition-all duration-500"
@@ -154,7 +154,7 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                  <span className="text-slate-300 font-medium">{currentUser.name}:</span>
+                  <span className="text-slate-300 font-medium">{currentUser!.name}:</span>
                   <span className="text-rose-400 font-bold">{formatCurrency(monthStats.myMonth, currency)} ({monthStats.myPct}%)</span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -176,8 +176,8 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
         <div className="grid grid-cols-2 gap-3">
           <div className="glass-card p-4 rounded-3xl border border-rose-500/30 bg-rose-950/20 space-y-1">
             <div className="flex items-center gap-2">
-              <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-6 h-6 rounded-full object-cover ring-1 ring-rose-500" />
-              <p className="text-xs font-bold text-slate-200">{currentUser.name}'s Capital</p>
+              <img src={currentUser!.avatarUrl} alt={currentUser!.name} className="w-6 h-6 rounded-full object-cover ring-1 ring-rose-500" />
+              <p className="text-xs font-bold text-slate-200">{currentUser!.name}'s Capital</p>
             </div>
             <p className="text-lg sm:text-xl font-extrabold text-rose-400 pt-1">
               {formatCurrency(allTimeStats.myTotal, currency)}

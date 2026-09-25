@@ -5,8 +5,8 @@ export interface UserProfile {
   name: string;
   email: string;
   avatarUrl: string;
-  partnerCode: string; // unique code that this user shares
-  vaultId: string; // couple vault ID they belong to
+  partnerCode: string; // unique code this user shares
+  vaultId: string;     // couple vault ID they belong to
   createdAt: string;
 }
 
@@ -49,7 +49,7 @@ export interface Transaction {
   categoryColor: string;
   categoryIcon: string;
   paymentMethod: PaymentMethod;
-  date: string; // YYYY-MM-DD
+  date: string;
   userId: string;
   userName: string;
   userAvatar?: string;
@@ -72,7 +72,7 @@ export interface FinanceGoal {
   title: string;
   targetAmount: number;
   currentAmount: number;
-  targetDate: string; // YYYY-MM-DD
+  targetDate: string;
   color: string;
   icon: string;
   createdByUserId: string;
@@ -88,8 +88,8 @@ export interface StockInvestment {
   ticker?: string;
   shares?: number;
   investedAmount: number;
-  monthYear: string; // e.g. "2026-09"
-  date: string; // YYYY-MM-DD
+  monthYear: string;
+  date: string;
   userId: string;
   userName: string;
   userAvatar?: string;
@@ -100,7 +100,7 @@ export interface BillItem {
   id: string;
   title: string;
   amount: number;
-  dueDate: string; // YYYY-MM-DD
+  dueDate: string;
   categoryName: string;
   categoryColor: string;
   isPaid: boolean;

@@ -48,13 +48,13 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
     type === 'expense' ? 'cat-food' : 'cat-salary'
   );
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('UPI / Pix');
-  const [paidByUserId, setPaidByUserId] = useState(currentUser.id);
+  const [paidByUserId, setPaidByUserId] = useState(currentUser?.id ?? '');
   const [isShared, setIsShared] = useState(true);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
-  if (!isOpen) return null;
+  if (!isOpen || !currentUser) return null;
 
   const currentCategories = categories.filter(
     c => c.type === 'both' || c.type === type
@@ -247,20 +247,20 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setPaidByUserId(currentUser.id)}
+                  onClick={() => setPaidByUserId(currentUser!.id)}
                   className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
-                    paidByUserId === currentUser.id
+                    paidByUserId === currentUser!.id
                       ? 'border-rose-500 bg-rose-500/15 text-white'
                       : 'border-white/5 bg-slate-800/60 text-slate-400'
                   }`}
                 >
                   <img
-                    src={currentUser.avatarUrl}
-                    alt={currentUser.name}
+                    src={currentUser!.avatarUrl}
+                    alt={currentUser!.name}
                     className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-500"
                   />
                   <div className="text-left">
-                    <p className="text-xs font-bold">{currentUser.name} (Me)</p>
+                    <p className="text-xs font-bold">{currentUser!.name} (Me)</p>
                     <p className="text-[10px] text-slate-400">Payer</p>
                   </div>
                 </button>
