@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { 
-  Wifi, 
   Users, 
   User, 
   Settings, 
@@ -33,38 +32,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile }) => {
   if (!currentUser) return null;
 
   return (
-    <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 px-4 py-3 backdrop-blur-xl">
+    <header 
+      className="sticky top-0 z-40 w-full glass-panel border-b border-white/10 px-4 backdrop-blur-xl"
+      style={{
+        paddingTop: 'max(28px, env(safe-area-inset-top, 28px))',
+        paddingBottom: '12px'
+      }}
+    >
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
         {/* App Brand with NP Monogram */}
         <div className="flex items-center gap-2.5">
           <NPIcon size="md" />
-
-          <div>
-            <div className="flex items-center gap-1.5">
-              <h1 className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
-                NuPra Finance
-              </h1>
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">
-                <Wifi className={`w-3 h-3 ${isSyncing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`} />
-                <span>{isSyncing ? 'Syncing...' : 'Cloud Live'}</span>
-              </span>
-              <button 
-                type="button"
-                onClick={() => void refreshSync()} 
-                title="Sync now with cloud"
-                className="p-0.5 rounded text-slate-500 hover:text-white transition-colors"
-              >
-                <RefreshCw className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />
-              </button>
-              {vault && (
-                <>
-                  <span>•</span>
-                  <span className="text-slate-300 font-medium truncate max-w-[120px]">{vault.name}</span>
-                </>
-              )}
-            </div>
+          <div className="flex items-center gap-2">
+            <h1 className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+              NuPra Finance
+            </h1>
+            {isSyncing && (
+              <RefreshCw className="w-3 h-3 animate-spin text-emerald-400 shrink-0" title="Syncing with cloud" />
+            )}
           </div>
         </div>
 

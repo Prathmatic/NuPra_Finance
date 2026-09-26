@@ -92,7 +92,12 @@ const MainContent: React.FC = () => {
       >
         <AppHeader onOpenProfile={() => setIsAuthOpen(true)} onOpenAddModal={() => setIsAddTxOpen(true)} />
 
-        <main className="flex-1 p-4 overflow-y-auto no-scrollbar">
+        <main 
+          className="flex-1 p-4 overflow-y-auto no-scrollbar"
+          style={{
+            paddingBottom: 'calc(max(24px, env(safe-area-inset-bottom, 24px)) + 84px)'
+          }}
+        >
           {renderActiveTab()}
         </main>
 

@@ -371,7 +371,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-gradient-to-br from-[#070a13] via-[#090e1a] to-[#0f172a]">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-gradient-to-br from-[#070a13] via-[#090e1a] to-[#0f172a]"
+      style={{
+        paddingTop: 'max(32px, env(safe-area-inset-top, 32px))',
+        paddingBottom: 'max(32px, env(safe-area-inset-bottom, 32px))'
+      }}
+    >
       <div className="absolute top-1/4 left-1/4 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
       

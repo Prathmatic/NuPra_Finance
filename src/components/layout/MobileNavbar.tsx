@@ -42,7 +42,12 @@ export const MobileNavbar: React.FC<MobileNavbarProps> = ({ onOpenAddModal }) =>
       </div>
 
       {/* Bottom Nav Bar Bar */}
-      <nav className="glass-panel border-t border-white/10 px-2 py-1.5 pb-safe">
+      <nav 
+        className="glass-panel border-t border-white/10 px-2 pt-1.5 shadow-2xl"
+        style={{
+          paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))'
+        }}
+      >
         <div className="max-w-md mx-auto flex items-center justify-around">
           {navItems.slice(0, 3).map((item) => {
             const Icon = item.icon;
