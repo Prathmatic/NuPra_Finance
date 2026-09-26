@@ -17,7 +17,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
     if (!toast) return;
     const timer = setTimeout(() => {
       onDismiss();
-    }, 2800);
+    }, 3500);
     return () => clearTimeout(timer);
   }, [toast, onDismiss]);
 
@@ -25,38 +25,45 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
 
   const typeConfig = {
     success: {
-      border: 'border-emerald-500/40 bg-slate-950/95',
-      icon: <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />,
-      glow: 'shadow-[0_8px_30px_rgb(16,185,129,0.2)]',
+      border: 'border-emerald-500/50 bg-slate-950/95',
+      icon: <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />,
+      glow: 'shadow-[0_10px_35px_rgba(16,185,129,0.3)]',
     },
     info: {
-      border: 'border-indigo-500/40 bg-slate-950/95',
-      icon: <Info className="w-4 h-4 text-indigo-400 shrink-0" />,
-      glow: 'shadow-[0_8px_30px_rgb(99,102,241,0.2)]',
+      border: 'border-indigo-500/50 bg-slate-950/95',
+      icon: <Info className="w-5 h-5 text-indigo-400 shrink-0" />,
+      glow: 'shadow-[0_10px_35px_rgba(99,102,241,0.3)]',
     },
     error: {
-      border: 'border-rose-500/40 bg-slate-950/95',
-      icon: <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />,
-      glow: 'shadow-[0_8px_30px_rgb(244,63,94,0.2)]',
+      border: 'border-rose-500/50 bg-slate-950/95',
+      icon: <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />,
+      glow: 'shadow-[0_10px_35px_rgba(244,63,94,0.3)]',
     },
   };
 
   const config = typeConfig[toast.type || 'success'];
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-sm w-[90%] pointer-events-auto animate-in fade-in slide-in-from-top-3 duration-200">
+    <div 
+      className="fixed left-1/2 -translate-x-1/2 z-[100] max-w-sm w-[92%] pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-300"
+      style={{
+        top: 'max(48px, calc(env(safe-area-inset-top, 0px) + 20px))'
+      }}
+    >
       <div 
-        className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${config.border} ${config.glow} backdrop-blur-xl text-white text-xs font-semibold`}
+        className={`flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl border ${config.border} ${config.glow} backdrop-blur-2xl text-white font-bold shadow-2xl`}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          {config.icon}
-          <span className="truncate">{toast.message}</span>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="p-1 rounded-lg bg-emerald-500/20 text-emerald-400">
+            {config.icon}
+          </div>
+          <span className="truncate tracking-wide text-xs sm:text-sm">{toast.message}</span>
         </div>
         <button
           onClick={onDismiss}
           className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-4 h-4" />
         </button>
       </div>
     </div>

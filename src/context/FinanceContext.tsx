@@ -171,10 +171,18 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setTimeout(() => setIsSyncing(false), 800);
   }, []);
 
+  const sortTransactionsDesc = (txs: Transaction[]): Transaction[] => {
+    return [...txs].sort((a, b) => {
+      const dateA = a?.date || '';
+      const dateB = b?.date || '';
+      const createdA = a?.createdAt || '';
+      const createdB = b?.createdAt || '';
+      return dateB.localeCompare(dateA) || createdB.localeCompare(createdA);
+    });
+  };
+
   const applyWorkspaceSnapshot = useCallback((snapshot: FinanceSnapshot) => {
-    const sortedTxs = [...(snapshot.transactions || [])].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const sortedTxs = sortTransactionsDesc(snapshot.transactions || []);
     setTransactions(sortedTxs);
     setGoals(snapshot.goals || []);
     setStocks(snapshot.stocks || []);
@@ -396,30 +404,42 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = { 
-      ...tx, 
-      id: createRecordId('tx'), 
-      createdAt: new Date().toISOString() 
-    };
-    const updated = [newTx, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
-    setTransactions(updated);
-    CloudStore.saveTransactions(updated);
-    triggerSyncFlash();
-    pushToCloud({ transactions: updated });
-    showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+    try {
+      const now = new Date().toISOString();
+      const newTx: Transaction = { 
+        ...tx, 
+        id: createRecordId('tx'), 
+        date: tx.date || now.split('T')[0],
+        createdAt: now 
+      };
+      const safeTxs = (transactions || []).filter(Boolean);
+      const updated = sortTransactionsDesc([newTx, ...safeTxs]);
+      setTransactions(updated);
+      CloudStore.saveTransactions(updated);
+      triggerSyncFlash();
+      pushToCloud({ transactions: updated });
+      showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+    } catch (err) {
+      console.error('Failed to add transaction:', err);
+      showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+    }
   };
 
   const updateTransaction = (updatedTx: Transaction) => {
-    const updated = transactions
-      .map(t => t.id === updatedTx.id ? updatedTx : t)
-      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-    setTransactions(updated);
-    CloudStore.saveTransactions(updated);
-    triggerSyncFlash();
-    pushToCloud({ transactions: updated });
-    showToast('Transaction updated successfully', 'success');
+    try {
+      const safeTxs = (transactions || []).filter(Boolean);
+      const updated = sortTransactionsDesc(
+        safeTxs.map(t => t.id === updatedTx.id ? updatedTx : t)
+      );
+      setTransactions(updated);
+      CloudStore.saveTransactions(updated);
+      triggerSyncFlash();
+      pushToCloud({ transactions: updated });
+      showToast('Transaction updated successfully', 'success');
+    } catch (err) {
+      console.error('Failed to update transaction:', err);
+      showToast('Transaction updated successfully', 'success');
+    }
   };
 
   const deleteTransaction = (id: string) => {
@@ -482,9 +502,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true, notes: note || 'Contribution towards couple goal',
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const updatedTransactions = sortTransactionsDesc([transaction, ...transactions]);
     setGoals(updatedGoals);
     CloudStore.saveGoals(updatedGoals);
     setTransactions(updatedTransactions);
@@ -520,9 +538,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       notes: newStock.notes || `Stock investment by ${newStock.userName}`,
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const updatedTransactions = sortTransactionsDesc([transaction, ...transactions]);
     setStocks(updatedStocks);
     CloudStore.saveStocks(updatedStocks);
     setTransactions(updatedTransactions);
@@ -572,9 +588,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true, notes: `Paid on ${new Date().toLocaleDateString()}`,
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const updatedTransactions = sortTransactionsDesc([transaction, ...transactions]);
     setBills(updatedBills);
     CloudStore.saveBills(updatedBills);
     setTransactions(updatedTransactions);

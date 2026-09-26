@@ -6,12 +6,11 @@ import {
   ArrowDownCircle, 
   ArrowUpCircle,
   Users,
-  CheckCircle2,
   AlertCircle
 } from 'lucide-react';
 import { PaymentMethod } from '../../types/finance';
 import { CategoryDropdown } from '../categories/CategoryDropdown';
-import { getCurrencySymbol, formatCurrency } from '../../utils/formatters';
+import { getCurrencySymbol } from '../../utils/formatters';
 
 interface AddTransactionModalProps {
   isOpen: boolean;
@@ -41,62 +40,37 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
-  const [selectedCatId, setSelectedCatId] = useState(
-    type === 'expense' ? 'cat-food' : 'cat-salary'
-  );
+  const [selectedCatId, setSelectedCatId] = useState('cat-food');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('None');
   const [paidByUserId, setPaidByUserId] = useState(currentUser?.id ?? '');
   const [isShared, setIsShared] = useState(true);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-
-  // Success Confirmation States
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [successDetails, setSuccessDetails] = useState<{
-    amount: number;
-    title: string;
-    categoryName: string;
-    type: 'expense' | 'income';
-  } | null>(null);
-  const [countdown, setCountdown] = useState(3);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Reset states whenever modal opens
+  // Reset fields on modal open
   useEffect(() => {
     if (isOpen) {
-      setIsSuccess(false);
-      setSuccessDetails(null);
       setErrorMessage('');
       setAmount('');
       setTitle('');
       setDate(new Date().toISOString().split('T')[0]);
       setPaymentMethod('None');
       setPaidByUserId(currentUser?.id ?? '');
+      setSelectedCatId(type === 'expense' ? 'cat-food' : 'cat-salary');
     }
-  }, [isOpen, currentUser]);
-
-  // Auto-close countdown when in success state
-  useEffect(() => {
-    if (!isSuccess) return;
-    if (countdown <= 0) {
-      onClose();
-      return;
-    }
-    const timer = setTimeout(() => {
-      setCountdown(prev => prev - 1);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [isSuccess, countdown, onClose]);
+  }, [isOpen, currentUser, type]);
 
   if (!isOpen || !currentUser) return null;
 
-  const currentCategories = categories.filter(
+  const currentCategories = (categories || []).filter(
     c => c.type === 'both' || c.type === type
   );
 
   const selectedCategory = currentCategories.find(c => c.id === selectedCatId) 
-    || categories.find(c => c.id === selectedCatId) 
+    || (categories || []).find(c => c.id === selectedCatId) 
     || currentCategories[0] 
-    || categories[0];
+    || (categories || [])[0]
+    || { id: 'cat-general', name: 'General', color: '#6366f1', icon: 'Tag', type: 'both' };
 
   const handleQuickAddAmount = (addValue: number) => {
     const current = parseFloat(amount) || 0;
@@ -104,17 +78,16 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
     setErrorMessage('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeAddTransaction = (keepOpenAfterRecord = false) => {
     setErrorMessage('');
 
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setErrorMessage('Please enter an amount greater than 0.');
-      return;
+      return false;
     }
 
-    // Additional Description is optional: if empty, defaults to the category name!
+    // Additional Description is completely optional: defaults to selected category name
     const finalTitle = title.trim() || selectedCategory.name;
     const paidByUser = (partner && paidByUserId === partner.id) ? partner : currentUser;
 
@@ -134,95 +107,45 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       isShared,
     });
 
-    // Show Confirmation Screen with prompt to add another
-    setSuccessDetails({
-      amount: parsedAmount,
-      title: finalTitle,
-      categoryName: selectedCategory.name,
-      type,
-    });
-    setCountdown(3);
-    setIsSuccess(true);
+    if (keepOpenAfterRecord) {
+      // Clear amount and title for next entry, keep category and modal open
+      setAmount('');
+      setTitle('');
+      setErrorMessage('');
+    } else {
+      // Immediately reset and CLOSE the page!
+      setTitle('');
+      setAmount('');
+      setPaymentMethod('None');
+      setErrorMessage('');
+      onClose();
+    }
+
+    return true;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeAddTransaction(false);
+  };
+
+  const handleRecordAndAddAnother = (e: React.MouseEvent) => {
+    e.preventDefault();
+    executeAddTransaction(true);
   };
 
   const currencySymbol = getCurrencySymbol(currency);
   const quickPills = currency === 'INR' ? [100, 500, 1000, 2000, 5000] : [5, 10, 25, 50, 100];
 
-  // Render Success Prompt View
-  if (isSuccess && successDetails) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="relative w-full max-w-sm glass-panel bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-in zoom-in-95 duration-200">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto ring-4 ring-emerald-500/30">
-            <CheckCircle2 className="w-9 h-9 stroke-[2.5]" />
-          </div>
-
-          <div>
-            <h3 className="text-lg font-black text-white">
-              {successDetails.type === 'expense' ? 'Expense Recorded!' : 'Income Recorded!'}
-            </h3>
-            <p className="text-xs text-emerald-400 font-semibold mt-0.5">
-              Saved successfully to your vault
-            </p>
-          </div>
-
-          <div className="p-3.5 rounded-2xl bg-slate-800/80 border border-white/10 text-left space-y-1.5 text-xs">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">Amount:</span>
-              <span className="font-extrabold text-sm text-white">
-                {formatCurrency(successDetails.amount, currency)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">Item:</span>
-              <span className="font-bold text-slate-200 truncate max-w-[160px]">
-                {successDetails.title}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">Category:</span>
-              <span className="text-slate-300 font-medium">
-                {successDetails.categoryName}
-              </span>
-            </div>
-          </div>
-
-          <p className="text-[11px] text-slate-400">
-            Auto-closing in <span className="font-bold text-emerald-400">{countdown}s</span>...
-          </p>
-
-          <div className="flex flex-col gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                setIsSuccess(false);
-                setSuccessDetails(null);
-                setAmount('');
-                setTitle('');
-                setErrorMessage('');
-              }}
-              className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Add Another {successDetails.type === 'expense' ? 'Expense' : 'Income'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all active:scale-95"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar">
+      <div 
+        className="relative w-full max-w-lg glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar"
+        style={{
+          marginTop: 'max(16px, env(safe-area-inset-top, 16px))',
+          marginBottom: 'max(16px, env(safe-area-inset-bottom, 16px))'
+        }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2">
@@ -439,14 +362,25 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
             />
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2"
-          >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
-            <span>Record {type === 'expense' ? 'Expense' : 'Income'}</span>
-          </button>
+          {/* Action Buttons: Primary Record (Closes modal immediately) + Optional Add Another */}
+          <div className="space-y-2 pt-1">
+            <button
+              type="submit"
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-95 active:scale-[0.99] text-white font-extrabold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-5 h-5 stroke-[2.5]" />
+              <span>Record {type === 'expense' ? 'Expense' : 'Income'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRecordAndAddAnother}
+              className="w-full py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white font-semibold text-xs transition-all active:scale-[0.99] flex items-center justify-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Record & Add Another</span>
+            </button>
+          </div>
         </form>
       </div>
     </div>
