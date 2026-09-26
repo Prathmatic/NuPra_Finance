@@ -48,7 +48,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile }) => {
               NuPra Finance
             </h1>
             {isSyncing && (
-              <RefreshCw className="w-3 h-3 animate-spin text-emerald-400 shrink-0" title="Syncing with cloud" />
+              <span title="Syncing with cloud">
+                <RefreshCw className="w-3 h-3 animate-spin text-emerald-400 shrink-0" />
+              </span>
             )}
           </div>
         </div>
