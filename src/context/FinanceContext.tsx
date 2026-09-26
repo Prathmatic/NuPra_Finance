@@ -14,6 +14,7 @@ import { CloudStore } from '../services/cloudSync';
 import {
   FinanceSnapshot,
   loadWorkspace,
+  loadFinanceSnapshot,
   saveProfile,
   saveFinanceSnapshot,
   signOut as signOutFromSupabase,
@@ -135,6 +136,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const currencyRef = useRef<CurrencyCode>(currency);
   const budgetsRef = useRef<BudgetsConfig>(budgets);
   const vaultRef = useRef<CoupleVault | null>(vault);
+  const currentUserRef = useRef<UserProfile | null>(currentUser);
+  const lastLocalWriteTimeRef = useRef<number>(0);
 
   // Tombstones to prevent deleted items from resurrecting on snapshot sync
   const deletedTxIdsRef = useRef<Set<string>>(new Set());
@@ -151,6 +154,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   useEffect(() => { currencyRef.current = currency; }, [currency]);
   useEffect(() => { budgetsRef.current = budgets; }, [budgets]);
   useEffect(() => { vaultRef.current = vault; }, [vault]);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   // Global month/year filter (defaults to current month: YYYY-MM)
   const [selectedMonth, setSelectedMonth] = useState<string>(() => 
@@ -339,29 +343,33 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveCategories(validCategories);
     CloudStore.saveCurrency(validCurrency);
     CloudStore.saveBudgets(loadedBudgets);
-
-    // If there were pending local items not yet on remote, sync them to Supabase
-    if (
-      pendingLocalTxs.length > 0 ||
-      pendingLocalGoals.length > 0 ||
-      pendingLocalStocks.length > 0 ||
-      pendingLocalBills.length > 0
-    ) {
-      pushToCloud({
-        transactions: mergedTxs,
-        goals: mergedGoals,
-        stocks: mergedStocks,
-        bills: mergedBills,
-      });
-    }
-  }, [pushToCloud]);
+  }, []);
 
   // Pull the authenticated user's current workspace and partner profile.
   const pullFromCloud = useCallback(async () => {
+    // If a local write occurred within the last 2.5s, skip pulling to prevent overwriting fresh local UI state
+    if (Date.now() - lastLocalWriteTimeRef.current < 2500) {
+      return;
+    }
     try {
+      const activeVaultId = vaultRef.current?.id || CloudStore.getVault()?.id;
+      if (!activeVaultId) return;
+
+      // Fast path: if workspace is already loaded, only query vault_finance_state (1 fast query)
+      if (currentUserRef.current && vaultRef.current) {
+        const snapshot = await loadFinanceSnapshot(activeVaultId);
+        if (snapshot) {
+          applyWorkspaceSnapshot(snapshot);
+          triggerSyncFlash();
+        }
+        return;
+      }
+
+      // Initial load: full workspace query
       const workspace = await loadWorkspace();
       if (!workspace.currentUser || !workspace.vault) return;
       setCurrentUser(workspace.currentUser);
+      currentUserRef.current = workspace.currentUser;
       setVault(workspace.vault);
       vaultRef.current = workspace.vault;
       applyWorkspaceSnapshot(workspace.snapshot ?? emptySnapshot());
@@ -373,6 +381,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       setAuthError(error instanceof Error ? error.message : 'Could not load your couple vault.');
     }
   }, [applyWorkspaceSnapshot, triggerSyncFlash]);
+
+  const pullFromCloudRef = useRef(pullFromCloud);
+  useEffect(() => {
+    pullFromCloudRef.current = pullFromCloud;
+  }, [pullFromCloud]);
+
+  const activeVaultId = vault?.id || CloudStore.getVault()?.id;
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -386,7 +401,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       try {
         if (!userId) {
           setCurrentUser(null);
+          currentUserRef.current = null;
           setVault(null);
+          vaultRef.current = null;
           setTransactions([]);
           setGoals([]);
           setStocks([]);
@@ -401,7 +418,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         const workspace = await loadWorkspace();
         if (!active) return;
         setCurrentUser(workspace.currentUser);
+        currentUserRef.current = workspace.currentUser;
         setVault(workspace.vault);
+        vaultRef.current = workspace.vault;
         if (workspace.snapshot) applyWorkspaceSnapshot(workspace.snapshot);
         else applyWorkspaceSnapshot(emptySnapshot());
         setIsOnboarded(Boolean(workspace.currentUser && workspace.vault && workspace.partner));
@@ -424,26 +443,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Realtime updates are primary; polling covers reconnects and suspended mobile apps.
   useEffect(() => {
-    const activeVaultId = vault?.id || CloudStore.getVault()?.id;
     if (!activeVaultId) return;
-    const channel = subscribeToVaultState(activeVaultId, () => { void pullFromCloud(); });
-    void pullFromCloud();
-    const interval = setInterval(pullFromCloud, 15000);
+    const channel = subscribeToVaultState(activeVaultId, () => {
+      void pullFromCloudRef.current();
+    });
+    void pullFromCloudRef.current();
+    const interval = setInterval(() => {
+      void pullFromCloudRef.current();
+    }, 15000);
     return () => {
       clearInterval(interval);
       void getSupabase().removeChannel(channel);
     };
-  }, [vault?.id, pullFromCloud]);
+  }, [activeVaultId]);
 
   // Also sync on app focus
   useEffect(() => {
     const onFocus = () => {
-      const activeVaultId = vault?.id || CloudStore.getVault()?.id;
-      if (activeVaultId) pullFromCloud();
+      if (activeVaultId) void pullFromCloudRef.current();
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [vault?.id, pullFromCloud]);
+  }, [activeVaultId]);
 
   // Keep other app tabs on this device aligned with the local cache.
   useEffect(() => {
@@ -551,19 +572,42 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
     try {
       const now = new Date().toISOString();
+      const newTxDate = tx.date || now.split('T')[0];
       const newTx: Transaction = { 
         ...tx, 
         id: createRecordId('tx'), 
-        date: tx.date || now.split('T')[0],
+        date: newTxDate,
         createdAt: now 
       };
       const safeTxs = (transactionsRef.current || []).filter(Boolean);
       const updated = sortTransactionsDesc([newTx, ...safeTxs]);
-      setTransactions(updated);
+
+      // 1. Immediately update ref & state synchronously (0ms UI latency)
       transactionsRef.current = updated;
+      setTransactions(updated);
+
+      // 2. Ensure selectedMonth displays the month of this transaction
+      const txMonth = newTxDate.slice(0, 7);
+      if (txMonth) {
+        setSelectedMonth(txMonth);
+      }
+
+      // 3. If current view is filtered to partner only, switch to 'both' so the new expense is visible
+      if (viewMode === 'partner' && currentUser && newTx.userId === currentUser.id) {
+        setViewMode('both');
+      }
+
+      // 4. Instantly persist to local storage cache
       CloudStore.saveTransactions(updated);
       triggerSyncFlash();
-      pushToCloud({ transactions: updated });
+
+      // 5. Shield local state from premature poll overwrites while cloud sync settles
+      lastLocalWriteTimeRef.current = Date.now();
+
+      // 6. Push to Supabase asynchronously in background
+      void pushToCloud({ transactions: updated });
+
+      // 7. Immediate toast feedback
       showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
     } catch (err) {
       console.error('Failed to add transaction:', err);
@@ -577,11 +621,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       const updated = sortTransactionsDesc(
         safeTxs.map(t => t.id === updatedTx.id ? updatedTx : t)
       );
-      setTransactions(updated);
       transactionsRef.current = updated;
+      setTransactions(updated);
       CloudStore.saveTransactions(updated);
       triggerSyncFlash();
-      pushToCloud({ transactions: updated });
+      lastLocalWriteTimeRef.current = Date.now();
+      void pushToCloud({ transactions: updated });
       showToast('Transaction updated successfully', 'success');
     } catch (err) {
       console.error('Failed to update transaction:', err);
@@ -592,11 +637,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteTransaction = (id: string) => {
     deletedTxIdsRef.current.add(id);
     const updated = (transactionsRef.current || []).filter(t => t.id !== id);
-    setTransactions(updated);
     transactionsRef.current = updated;
+    setTransactions(updated);
     CloudStore.saveTransactions(updated);
     triggerSyncFlash();
-    pushToCloud({ transactions: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ transactions: updated });
     showToast('Transaction removed', 'info');
   };
 
