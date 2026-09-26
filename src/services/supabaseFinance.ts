@@ -10,7 +10,9 @@ import type {
   UserProfile,
   BudgetsConfig,
 } from '../types/finance';
+import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { getSupabase } from './supabaseClient';
+import { compressAvatarImage } from '../utils/imageCompressor';
 
 export interface FinanceSnapshot {
   transactions: Transaction[];
@@ -45,20 +47,34 @@ const emptySnapshot = (): FinanceSnapshot => ({
   goals: [],
   stocks: [],
   bills: [],
-  categories: [],
+  categories: DEFAULT_CATEGORIES,
   currency: 'INR',
   budgets: { couple: 0, me: 0, partner: 0 },
 });
 
-const toProfile = (row: any, vaultId = ''): UserProfile => ({
-  id: row.id,
-  name: row.display_name,
-  email: row.email,
-  avatarUrl: row.avatar_url || '',
-  partnerCode: '',
-  vaultId,
-  createdAt: row.created_at,
-});
+const toProfile = (row: any, vaultId = ''): UserProfile => {
+  const avatarUrl = row.avatar_url || '';
+  // If legacy profile in Supabase contains an uncompressed massive base64 (> 25KB),
+  // schedule an asynchronous compression so the DB is permanently fixed without blocking UI.
+  if (avatarUrl.startsWith('data:') && avatarUrl.length > 25000) {
+    void compressAvatarImage(avatarUrl, 128, 0.75).then(async (compressed) => {
+      if (compressed && compressed.length < avatarUrl.length) {
+        try {
+          await getSupabase().from('profiles').update({ avatar_url: compressed }).eq('id', row.id);
+        } catch {}
+      }
+    });
+  }
+  return {
+    id: row.id,
+    name: row.display_name,
+    email: row.email,
+    avatarUrl,
+    partnerCode: '',
+    vaultId,
+    createdAt: row.created_at,
+  };
+};
 
 export async function requestEmailCode(email: string): Promise<void> {
   const { error } = await getSupabase().auth.signInWithOtp({
@@ -98,11 +114,17 @@ export async function verifyEmailCode(email: string, token: string): Promise<Aut
 export async function getSignedInUser(): Promise<AuthUser | null> {
   const client = getSupabase();
   const { data: sessionData, error: sessionError } = await client.auth.getSession();
-  if (sessionError) throw sessionError;
-  if (!sessionData.session) return null;
-  const { data, error } = await client.auth.getUser();
-  if (error) throw error;
-  return data.user;
+  if (sessionError || !sessionData?.session) return null;
+  if (sessionData.session.user) {
+    return sessionData.session.user;
+  }
+  try {
+    const { data, error } = await client.auth.getUser();
+    if (error) return null;
+    return data.user;
+  } catch {
+    return null;
+  }
 }
 
 export async function signOut(): Promise<void> {
@@ -113,11 +135,19 @@ export async function signOut(): Promise<void> {
 export async function saveProfile(profile: UserProfile): Promise<void> {
   const user = await getSignedInUser();
   if (!user || user.id !== profile.id) throw new Error('Your Supabase session has expired. Sign in again.');
+
+  let avatarToSave = profile.avatarUrl;
+  if (avatarToSave && avatarToSave.startsWith('data:') && avatarToSave.length > 25000) {
+    try {
+      avatarToSave = await compressAvatarImage(avatarToSave, 128, 0.75);
+    } catch {}
+  }
+
   const { error } = await getSupabase().from('profiles').upsert({
     id: profile.id,
     email: profile.email.trim().toLowerCase(),
     display_name: profile.name.trim(),
-    avatar_url: profile.avatarUrl,
+    avatar_url: avatarToSave,
   });
   if (error) throw error;
   await loadWorkspace();
@@ -271,15 +301,65 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
     .eq('vault_id', vaultId)
     .maybeSingle();
   if (stateError) throw stateError;
-  const snapshot: FinanceSnapshot = stateRow ? {
-    transactions: stateRow.transactions as Transaction[],
-    goals: stateRow.goals as FinanceGoal[],
-    stocks: stateRow.stocks as StockInvestment[],
-    bills: stateRow.bills as BillItem[],
-    categories: stateRow.categories as Category[],
-    currency: stateRow.currency as CurrencyCode,
-    budgets: (stateRow as any).budgets || { couple: Number(vaultRow.monthly_budget) || 0, me: 0, partner: 0 },
-  } : emptySnapshot();
+
+  let snapshot: FinanceSnapshot;
+  if (stateRow) {
+    const rawCategories = (stateRow.categories as Category[]) || [];
+    const budgetMeta = rawCategories.find(c => c.id === '__budgets_config__');
+    const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__');
+    let parsedBudgets: BudgetsConfig = { couple: Number(vaultRow.monthly_budget) || 0, me: 0, partner: 0 };
+    if (budgetMeta) {
+      try {
+        const parsed = JSON.parse(budgetMeta.name);
+        if (typeof parsed === 'object' && parsed !== null) {
+          parsedBudgets = {
+            couple: Number(parsed.couple) || Number(vaultRow.monthly_budget) || 0,
+            me: Number(parsed.me) || 0,
+            partner: Number(parsed.partner) || 0,
+          };
+        }
+      } catch {}
+    }
+    const rawTxs = (stateRow.transactions as Transaction[]) || [];
+    let hadBloat = false;
+    const cleanTxs = rawTxs.map(tx => {
+      if (tx?.userAvatar && (tx.userAvatar.startsWith('data:') || tx.userAvatar.length > 500)) {
+        hadBloat = true;
+        const { userAvatar, ...rest } = tx;
+        return rest as Transaction;
+      }
+      return tx;
+    });
+
+    const rawStocks = (stateRow.stocks as StockInvestment[]) || [];
+    const cleanStocks = rawStocks.map(stock => {
+      if (stock?.userAvatar && (stock.userAvatar.startsWith('data:') || stock.userAvatar.length > 500)) {
+        hadBloat = true;
+        const { userAvatar, ...rest } = stock;
+        return rest as StockInvestment;
+      }
+      return stock;
+    });
+
+    if (hadBloat) {
+      void getSupabase()
+        .from('vault_finance_state')
+        .update({ transactions: cleanTxs, stocks: cleanStocks })
+        .eq('vault_id', vaultId);
+    }
+
+    snapshot = {
+      transactions: cleanTxs,
+      goals: (stateRow.goals as FinanceGoal[]) || [],
+      stocks: cleanStocks,
+      bills: (stateRow.bills as BillItem[]) || [],
+      categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
+      currency: (stateRow.currency as CurrencyCode) || 'INR',
+      budgets: parsedBudgets,
+    };
+  } else {
+    snapshot = emptySnapshot();
+  }
 
   const currentUser = toProfile(profileRow, vaultId);
   const partner = ownerId === authUser.id ? partnerProfile : ownerProfile;
@@ -288,19 +368,64 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
 
 export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnapshot): Promise<void> {
   const user = await getSignedInUser();
-  if (!user) throw new Error('Your Supabase session has expired. Sign in again.');
+  if (!user) {
+    console.warn('saveFinanceSnapshot: User is not authenticated in Supabase.');
+    return;
+  }
+
+  const budgetsToPersist = snapshot.budgets || { couple: 0, me: 0, partner: 0 };
+  const categoriesToPersist = [
+    ...(snapshot.categories || []).filter(c => c.id !== '__budgets_config__'),
+    {
+      id: '__budgets_config__',
+      name: JSON.stringify(budgetsToPersist),
+      icon: '',
+      color: '',
+    },
+  ];
+
+  const cleanTxs = (snapshot.transactions || []).map(tx => {
+    if (tx?.userAvatar && (tx.userAvatar.startsWith('data:') || tx.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = tx;
+      return rest as Transaction;
+    }
+    return tx;
+  });
+
+  const cleanStocks = (snapshot.stocks || []).map(stock => {
+    if (stock?.userAvatar && (stock.userAvatar.startsWith('data:') || stock.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = stock;
+      return rest as StockInvestment;
+    }
+    return stock;
+  });
+
   const { error } = await getSupabase().from('vault_finance_state').upsert({
     vault_id: vaultId,
-    transactions: snapshot.transactions,
-    goals: snapshot.goals,
-    stocks: snapshot.stocks,
-    bills: snapshot.bills,
-    categories: snapshot.categories,
-    currency: snapshot.currency,
+    transactions: cleanTxs,
+    goals: snapshot.goals || [],
+    stocks: cleanStocks,
+    bills: snapshot.bills || [],
+    categories: categoriesToPersist,
+    currency: snapshot.currency || 'INR',
     updated_by: user.id,
     updated_at: new Date().toISOString(),
-  });
-  if (error) throw error;
+  }, { onConflict: 'vault_id' });
+
+  if (error) {
+    console.error('Supabase saveFinanceSnapshot error:', error);
+    throw error;
+  }
+
+  // Also update couple_vaults.monthly_budget if permissions allow
+  try {
+    await getSupabase()
+      .from('couple_vaults')
+      .update({ monthly_budget: budgetsToPersist.couple })
+      .eq('id', vaultId);
+  } catch {
+    // Non-fatal if RLS restricts direct table update on couple_vaults
+  }
 }
 
 export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnapshot | null> {
@@ -311,13 +436,50 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+
+  const rawCategories = (data.categories as Category[]) || [];
+  const budgetMeta = rawCategories.find(c => c.id === '__budgets_config__');
+  const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__');
+  let parsedBudgets: BudgetsConfig = { couple: 0, me: 0, partner: 0 };
+  if (budgetMeta) {
+    try {
+      const parsed = JSON.parse(budgetMeta.name);
+      if (typeof parsed === 'object' && parsed !== null) {
+        parsedBudgets = {
+          couple: Number(parsed.couple) || 0,
+          me: Number(parsed.me) || 0,
+          partner: Number(parsed.partner) || 0,
+        };
+      }
+    } catch {}
+  }
+
+  const rawTxs = (data.transactions as Transaction[]) || [];
+  const cleanTxs = rawTxs.map(tx => {
+    if (tx?.userAvatar && (tx.userAvatar.startsWith('data:') || tx.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = tx;
+      return rest as Transaction;
+    }
+    return tx;
+  });
+
+  const rawStocks = (data.stocks as StockInvestment[]) || [];
+  const cleanStocks = rawStocks.map(stock => {
+    if (stock?.userAvatar && (stock.userAvatar.startsWith('data:') || stock.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = stock;
+      return rest as StockInvestment;
+    }
+    return stock;
+  });
+
   return {
-    transactions: data.transactions as Transaction[],
-    goals: data.goals as FinanceGoal[],
-    stocks: data.stocks as StockInvestment[],
-    bills: data.bills as BillItem[],
-    categories: data.categories as Category[],
-    currency: data.currency as CurrencyCode,
+    transactions: cleanTxs,
+    goals: (data.goals as FinanceGoal[]) || [],
+    stocks: cleanStocks,
+    bills: (data.bills as BillItem[]) || [],
+    categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
+    currency: (data.currency as CurrencyCode) || 'INR',
+    budgets: parsedBudgets,
   };
 }
 

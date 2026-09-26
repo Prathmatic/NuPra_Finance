@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useMemo, useCallback } from 'react';
 import { 
   UserProfile, 
   CoupleVault, 
@@ -14,6 +14,7 @@ import { CloudStore } from '../services/cloudSync';
 import {
   FinanceSnapshot,
   loadWorkspace,
+  loadFinanceSnapshot,
   saveProfile,
   saveFinanceSnapshot,
   signOut as signOutFromSupabase,
@@ -108,23 +109,52 @@ const emptySnapshot = (): FinanceSnapshot => ({
 const createRecordId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
 export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [isOnboarded, setIsOnboarded] = useState(false);
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [vault, setVault] = useState<CoupleVault | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>(CloudStore.getCategories());
-  const [goals, setGoals] = useState<FinanceGoal[]>([]);
-  const [stocks, setStocks] = useState<StockInvestment[]>([]);
-  const [bills, setBills] = useState<BillItem[]>([]);
-  const [currency, setCurrencyState] = useState<CurrencyCode>('INR');
+  // Initialize state from local cache so previously saved data is immediately available
+  const [isOnboarded, setIsOnboarded] = useState<boolean>(() => CloudStore.isOnboarded());
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => CloudStore.getCurrentUser());
+  const [vault, setVault] = useState<CoupleVault | null>(() => CloudStore.getVault());
+  const [transactions, setTransactions] = useState<Transaction[]>(() => CloudStore.getTransactions());
+  const [categories, setCategories] = useState<Category[]>(() => CloudStore.getCategories());
+  const [goals, setGoals] = useState<FinanceGoal[]>(() => CloudStore.getGoals());
+  const [stocks, setStocks] = useState<StockInvestment[]>(() => CloudStore.getStocks());
+  const [bills, setBills] = useState<BillItem[]>(() => CloudStore.getBills());
+  const [currency, setCurrencyState] = useState<CurrencyCode>(() => CloudStore.getCurrency());
+  const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
+
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [viewMode, setViewMode] = useState<'both' | 'me' | 'partner'>('both');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authError, setAuthError] = useState('');
 
-  // Budgets state (defaults to 0)
-  const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
+  // Synchronous refs to prevent stale closures during rapid writes & network pulls
+  const transactionsRef = useRef<Transaction[]>(transactions);
+  const goalsRef = useRef<FinanceGoal[]>(goals);
+  const stocksRef = useRef<StockInvestment[]>(stocks);
+  const billsRef = useRef<BillItem[]>(bills);
+  const categoriesRef = useRef<Category[]>(categories);
+  const currencyRef = useRef<CurrencyCode>(currency);
+  const budgetsRef = useRef<BudgetsConfig>(budgets);
+  const vaultRef = useRef<CoupleVault | null>(vault);
+  const currentUserRef = useRef<UserProfile | null>(currentUser);
+  const lastLocalWriteTimeRef = useRef<number>(0);
+
+  // Tombstones to prevent deleted items from resurrecting on snapshot sync
+  const deletedTxIdsRef = useRef<Set<string>>(new Set());
+  const deletedGoalIdsRef = useRef<Set<string>>(new Set());
+  const deletedStockIdsRef = useRef<Set<string>>(new Set());
+  const deletedBillIdsRef = useRef<Set<string>>(new Set());
+
+  // Synchronize refs when state updates
+  useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
+  useEffect(() => { goalsRef.current = goals; }, [goals]);
+  useEffect(() => { stocksRef.current = stocks; }, [stocks]);
+  useEffect(() => { billsRef.current = bills; }, [bills]);
+  useEffect(() => { categoriesRef.current = categories; }, [categories]);
+  useEffect(() => { currencyRef.current = currency; }, [currency]);
+  useEffect(() => { budgetsRef.current = budgets; }, [budgets]);
+  useEffect(() => { vaultRef.current = vault; }, [vault]);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   // Global month/year filter (defaults to current month: YYYY-MM)
   const [selectedMonth, setSelectedMonth] = useState<string>(() => 
@@ -171,63 +201,219 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setTimeout(() => setIsSyncing(false), 800);
   }, []);
 
-  const applyWorkspaceSnapshot = useCallback((snapshot: FinanceSnapshot) => {
-    const sortedTxs = [...(snapshot.transactions || [])].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
-    setTransactions(sortedTxs);
-    setGoals(snapshot.goals || []);
-    setStocks(snapshot.stocks || []);
-    setBills(snapshot.bills || []);
-    setCategories(snapshot.categories || CloudStore.getCategories());
-    setCurrencyState(snapshot.currency || 'INR');
-    
-    const loadedBudgets = snapshot.budgets || CloudStore.getBudgets();
-    setBudgets(loadedBudgets);
-    CloudStore.saveBudgets(loadedBudgets);
-
-    CloudStore.saveTransactions(sortedTxs);
-    CloudStore.saveGoals(snapshot.goals || []);
-    CloudStore.saveStocks(snapshot.stocks || []);
-    CloudStore.saveBills(snapshot.bills || []);
-    CloudStore.saveCategories(snapshot.categories || CloudStore.getCategories());
-    CloudStore.saveCurrency(snapshot.currency || 'INR');
-  }, []);
+  const sortTransactionsDesc = (txs: Transaction[]): Transaction[] => {
+    return [...txs].sort((a, b) => {
+      const dateA = a?.date || '';
+      const dateB = b?.date || '';
+      const createdA = a?.createdAt || '';
+      const createdB = b?.createdAt || '';
+      return dateB.localeCompare(dateA) || createdB.localeCompare(createdA);
+    });
+  };
 
   const pushToCloud = useCallback(async (overrides?: Partial<FinanceSnapshot>) => {
-    if (!vault) return;
-    const snapshot: FinanceSnapshot = {
-      transactions: overrides?.transactions ?? transactions,
-      goals: overrides?.goals ?? goals,
-      stocks: overrides?.stocks ?? stocks,
-      bills: overrides?.bills ?? bills,
-      categories: overrides?.categories ?? categories,
-      currency: overrides?.currency ?? currency,
-      budgets: overrides?.budgets ?? budgets,
+    const targetVault = vaultRef.current || CloudStore.getVault();
+    if (!targetVault?.id) return;
+
+    const rawTxs = overrides?.transactions ?? transactionsRef.current ?? [];
+    const cleanTxs = rawTxs.map(t => {
+      if (t.userAvatar && (t.userAvatar.startsWith('data:') || t.userAvatar.length > 500)) {
+        const { userAvatar, ...rest } = t;
+        return rest as Transaction;
+      }
+      return t;
+    });
+
+    const rawStocks = overrides?.stocks ?? stocksRef.current ?? [];
+    const cleanStocks = rawStocks.map(s => {
+      if (s.userAvatar && (s.userAvatar.startsWith('data:') || s.userAvatar.length > 500)) {
+        const { userAvatar, ...rest } = s;
+        return rest as StockInvestment;
+      }
+      return s;
+    });
+
+    const snapshotToSave: FinanceSnapshot = {
+      transactions: cleanTxs,
+      goals: overrides?.goals ?? goalsRef.current,
+      stocks: cleanStocks,
+      bills: overrides?.bills ?? billsRef.current,
+      categories: overrides?.categories ?? categoriesRef.current,
+      currency: overrides?.currency ?? currencyRef.current,
+      budgets: overrides?.budgets ?? budgetsRef.current,
     };
+
     try {
-      await saveFinanceSnapshot(vault.id, snapshot);
+      await saveFinanceSnapshot(targetVault.id, snapshotToSave);
       setAuthError('');
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Could not sync finance data.');
+      console.error('Failed to sync finance snapshot to Supabase:', error);
+      const msg = error instanceof Error ? error.message : 'Could not sync finance data.';
+      setAuthError(msg);
+      // Auto-retry once in case of network fluctuation
+      setTimeout(async () => {
+        try {
+          const retryVault = vaultRef.current || CloudStore.getVault();
+          if (retryVault?.id) {
+            await saveFinanceSnapshot(retryVault.id, snapshotToSave);
+            setAuthError('');
+          }
+        } catch (retryError) {
+          console.error('Retry push to Supabase also failed:', retryError);
+        }
+      }, 3000);
     }
-  }, [vault, transactions, goals, stocks, bills, categories, currency, budgets]);
+  }, []);
+
+  const applyWorkspaceSnapshot = useCallback((snapshot: FinanceSnapshot) => {
+    // 1. Transactions merge: keep remote + local pending transactions not on remote, excluding deleted
+    const remoteTxs = snapshot.transactions || [];
+    const remoteTxMap = new Map<string, Transaction>(remoteTxs.map(t => [t.id, t]));
+    const deletedTxs = deletedTxIdsRef.current;
+    
+    // Find local transactions that aren't yet on remote and haven't been deleted
+    const pendingLocalTxs = (transactionsRef.current || []).filter(
+      t => t && !remoteTxMap.has(t.id) && !deletedTxs.has(t.id)
+    );
+    
+    // Filter out locally deleted transactions from remote and strip any heavy data URLs
+    const validRemoteTxs = remoteTxs
+      .filter(t => !deletedTxs.has(t.id))
+      .map(t => {
+        if (t.userAvatar && (t.userAvatar.startsWith('data:') || t.userAvatar.length > 500)) {
+          const { userAvatar, ...rest } = t;
+          return rest as Transaction;
+        }
+        return t;
+      });
+    
+    // Combine both: remote takes precedence for existing, pending local are preserved
+    const mergedTxs = sortTransactionsDesc([...validRemoteTxs, ...pendingLocalTxs]);
+
+    // Clean up deleted IDs that are now confirmed gone from remote
+    deletedTxs.forEach(id => {
+      if (!remoteTxMap.has(id)) deletedTxs.delete(id);
+    });
+
+    // 2. Goals merge
+    const remoteGoals = snapshot.goals || [];
+    const remoteGoalMap = new Map<string, FinanceGoal>(remoteGoals.map(g => [g.id, g]));
+    const deletedGoals = deletedGoalIdsRef.current;
+    const pendingLocalGoals = (goalsRef.current || []).filter(
+      g => g && !remoteGoalMap.has(g.id) && !deletedGoals.has(g.id)
+    );
+    const validRemoteGoals = remoteGoals.filter(g => !deletedGoals.has(g.id));
+    const mergedGoals = [...validRemoteGoals, ...pendingLocalGoals];
+    deletedGoals.forEach(id => {
+      if (!remoteGoalMap.has(id)) deletedGoals.delete(id);
+    });
+
+    // 3. Stocks merge
+    const remoteStocks = snapshot.stocks || [];
+    const remoteStockMap = new Map<string, StockInvestment>(remoteStocks.map(s => [s.id, s]));
+    const deletedStocks = deletedStockIdsRef.current;
+    const pendingLocalStocks = (stocksRef.current || []).filter(
+      s => s && !remoteStockMap.has(s.id) && !deletedStocks.has(s.id)
+    );
+    const validRemoteStocks = remoteStocks.filter(s => !deletedStocks.has(s.id));
+    const mergedStocks = [...validRemoteStocks, ...pendingLocalStocks];
+    deletedStocks.forEach(id => {
+      if (!remoteStockMap.has(id)) deletedStocks.delete(id);
+    });
+
+    // 4. Bills merge
+    const remoteBills = snapshot.bills || [];
+    const remoteBillMap = new Map<string, BillItem>(remoteBills.map(b => [b.id, b]));
+    const deletedBills = deletedBillIdsRef.current;
+    const pendingLocalBills = (billsRef.current || []).filter(
+      b => b && !remoteBillMap.has(b.id) && !deletedBills.has(b.id)
+    );
+    const validRemoteBills = remoteBills.filter(b => !deletedBills.has(b.id));
+    const mergedBills = [...validRemoteBills, ...pendingLocalBills];
+    deletedBills.forEach(id => {
+      if (!remoteBillMap.has(id)) deletedBills.delete(id);
+    });
+
+    // 5. Categories
+    const validCategories = (snapshot.categories && snapshot.categories.length > 0)
+      ? snapshot.categories.filter(c => c.id !== '__budgets_config__')
+      : CloudStore.getCategories();
+
+    // 6. Currency
+    const validCurrency = snapshot.currency || 'INR';
+
+    // 7. Budgets
+    const loadedBudgets = snapshot.budgets || CloudStore.getBudgets();
+
+    // Update state & refs
+    setTransactions(mergedTxs);
+    transactionsRef.current = mergedTxs;
+    setGoals(mergedGoals);
+    goalsRef.current = mergedGoals;
+    setStocks(mergedStocks);
+    stocksRef.current = mergedStocks;
+    setBills(mergedBills);
+    billsRef.current = mergedBills;
+    setCategories(validCategories);
+    categoriesRef.current = validCategories;
+    setCurrencyState(validCurrency);
+    currencyRef.current = validCurrency;
+    setBudgets(loadedBudgets);
+    budgetsRef.current = loadedBudgets;
+
+    // Persist to local cache immediately
+    CloudStore.saveTransactions(mergedTxs);
+    CloudStore.saveGoals(mergedGoals);
+    CloudStore.saveStocks(mergedStocks);
+    CloudStore.saveBills(mergedBills);
+    CloudStore.saveCategories(validCategories);
+    CloudStore.saveCurrency(validCurrency);
+    CloudStore.saveBudgets(loadedBudgets);
+  }, []);
 
   // Pull the authenticated user's current workspace and partner profile.
   const pullFromCloud = useCallback(async () => {
+    // If a local write occurred within the last 2.5s, skip pulling to prevent overwriting fresh local UI state
+    if (Date.now() - lastLocalWriteTimeRef.current < 2500) {
+      return;
+    }
     try {
+      const activeVaultId = vaultRef.current?.id || CloudStore.getVault()?.id;
+      if (!activeVaultId) return;
+
+      // Fast path: if workspace is already loaded, only query vault_finance_state (1 fast query)
+      if (currentUserRef.current && vaultRef.current) {
+        const snapshot = await loadFinanceSnapshot(activeVaultId);
+        if (snapshot) {
+          applyWorkspaceSnapshot(snapshot);
+          triggerSyncFlash();
+        }
+        return;
+      }
+
+      // Initial load: full workspace query
       const workspace = await loadWorkspace();
       if (!workspace.currentUser || !workspace.vault) return;
       setCurrentUser(workspace.currentUser);
+      currentUserRef.current = workspace.currentUser;
       setVault(workspace.vault);
+      vaultRef.current = workspace.vault;
       applyWorkspaceSnapshot(workspace.snapshot ?? emptySnapshot());
       setIsOnboarded(Boolean(workspace.partner));
       setAuthError('');
       triggerSyncFlash();
     } catch (error) {
+      console.warn('Could not pull from cloud:', error);
       setAuthError(error instanceof Error ? error.message : 'Could not load your couple vault.');
     }
   }, [applyWorkspaceSnapshot, triggerSyncFlash]);
+
+  const pullFromCloudRef = useRef(pullFromCloud);
+  useEffect(() => {
+    pullFromCloudRef.current = pullFromCloud;
+  }, [pullFromCloud]);
+
+  const activeVaultId = vault?.id || CloudStore.getVault()?.id;
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -241,7 +427,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       try {
         if (!userId) {
           setCurrentUser(null);
+          currentUserRef.current = null;
           setVault(null);
+          vaultRef.current = null;
           setTransactions([]);
           setGoals([]);
           setStocks([]);
@@ -256,7 +444,11 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         const workspace = await loadWorkspace();
         if (!active) return;
         setCurrentUser(workspace.currentUser);
+        currentUserRef.current = workspace.currentUser;
         setVault(workspace.vault);
+        vaultRef.current = workspace.vault;
+        if (workspace.currentUser) CloudStore.saveCurrentUser(workspace.currentUser);
+        if (workspace.vault) CloudStore.saveVault(workspace.vault);
         if (workspace.snapshot) applyWorkspaceSnapshot(workspace.snapshot);
         else applyWorkspaceSnapshot(emptySnapshot());
         setIsOnboarded(Boolean(workspace.currentUser && workspace.vault && workspace.partner));
@@ -279,22 +471,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Realtime updates are primary; polling covers reconnects and suspended mobile apps.
   useEffect(() => {
-    if (!vault?.id) return;
-    const channel = subscribeToVaultState(vault.id, () => { void pullFromCloud(); });
-    void pullFromCloud();
-    const interval = setInterval(pullFromCloud, 15000);
+    if (!activeVaultId) return;
+    const channel = subscribeToVaultState(activeVaultId, () => {
+      void pullFromCloudRef.current();
+    });
+    void pullFromCloudRef.current();
+    const interval = setInterval(() => {
+      void pullFromCloudRef.current();
+    }, 15000);
     return () => {
       clearInterval(interval);
       void getSupabase().removeChannel(channel);
     };
-  }, [vault?.id, pullFromCloud]);
+  }, [activeVaultId]);
 
   // Also sync on app focus
   useEffect(() => {
-    const onFocus = () => { if (vault?.id) pullFromCloud(); };
+    const onFocus = () => {
+      if (activeVaultId) void pullFromCloudRef.current();
+    };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [vault?.id, pullFromCloud]);
+  }, [activeVaultId]);
 
   // Keep other app tabs on this device aligned with the local cache.
   useEffect(() => {
@@ -344,6 +542,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   /* ─── Currency ────────────────────────────────────────────────────────── */
   const setCurrency = (c: CurrencyCode) => {
     setCurrencyState(c);
+    currencyRef.current = c;
     CloudStore.saveCurrency(c);
     triggerSyncFlash();
     pushToCloud({ currency: c });
@@ -378,64 +577,114 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   /* ─── Budgets ─────────────────────────────────────────────────────────── */
   const updateBudgets = useCallback((newBudgets: BudgetsConfig) => {
     setBudgets(newBudgets);
+    budgetsRef.current = newBudgets;
     CloudStore.saveBudgets(newBudgets);
-    if (vault) {
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (activeVault) {
       const updatedVault: CoupleVault = {
-        ...vault,
+        ...activeVault,
         monthlyBudget: newBudgets.couple,
         myBudget: newBudgets.me,
         partnerBudget: newBudgets.partner,
       };
       setVault(updatedVault);
+      vaultRef.current = updatedVault;
       CloudStore.saveVault(updatedVault);
     }
     triggerSyncFlash();
     pushToCloud({ budgets: newBudgets });
     showToast('Monthly budgets saved successfully', 'success');
-  }, [vault, triggerSyncFlash, pushToCloud, showToast]);
+  }, [triggerSyncFlash, pushToCloud, showToast]);
 
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = { 
-      ...tx, 
-      id: createRecordId('tx'), 
-      createdAt: new Date().toISOString() 
-    };
-    const updated = [newTx, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
-    setTransactions(updated);
-    CloudStore.saveTransactions(updated);
-    triggerSyncFlash();
-    pushToCloud({ transactions: updated });
-    showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+    try {
+      const now = new Date().toISOString();
+      const newTxDate = tx.date || now.split('T')[0];
+      const newTx: Transaction = { 
+        ...tx, 
+        userAvatar: (tx.userAvatar && !tx.userAvatar.startsWith('data:')) ? tx.userAvatar : undefined,
+        id: createRecordId('tx'), 
+        date: newTxDate,
+        createdAt: now 
+      };
+      const safeTxs = (transactionsRef.current || []).filter(Boolean);
+      const updated = sortTransactionsDesc([newTx, ...safeTxs]);
+
+      // 1. Immediately update ref & state synchronously (0ms UI latency)
+      transactionsRef.current = updated;
+      setTransactions(updated);
+
+      // 2. Ensure selectedMonth displays the month of this transaction
+      const txMonth = newTxDate.slice(0, 7);
+      if (txMonth) {
+        setSelectedMonth(txMonth);
+      }
+
+      // 3. If current view is filtered to partner only, switch to 'both' so the new expense is visible
+      if (viewMode === 'partner' && currentUser && newTx.userId === currentUser.id) {
+        setViewMode('both');
+      }
+
+      // 4. Instantly persist to local storage cache
+      CloudStore.saveTransactions(updated);
+      triggerSyncFlash();
+
+      // 5. Shield local state from premature poll overwrites while cloud sync settles
+      lastLocalWriteTimeRef.current = Date.now();
+
+      // 6. Push to Supabase asynchronously in background
+      void pushToCloud({ transactions: updated });
+
+      // 7. Immediate toast feedback
+      showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+    } catch (err) {
+      console.error('Failed to add transaction:', err);
+      showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+    }
   };
 
   const updateTransaction = (updatedTx: Transaction) => {
-    const updated = transactions
-      .map(t => t.id === updatedTx.id ? updatedTx : t)
-      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-    setTransactions(updated);
-    CloudStore.saveTransactions(updated);
-    triggerSyncFlash();
-    pushToCloud({ transactions: updated });
-    showToast('Transaction updated successfully', 'success');
+    try {
+      const cleanUpdatedTx: Transaction = {
+        ...updatedTx,
+        userAvatar: (updatedTx.userAvatar && !updatedTx.userAvatar.startsWith('data:')) ? updatedTx.userAvatar : undefined,
+      };
+      const safeTxs = (transactionsRef.current || []).filter(Boolean);
+      const updated = sortTransactionsDesc(
+        safeTxs.map(t => t.id === cleanUpdatedTx.id ? cleanUpdatedTx : t)
+      );
+      transactionsRef.current = updated;
+      setTransactions(updated);
+      CloudStore.saveTransactions(updated);
+      triggerSyncFlash();
+      lastLocalWriteTimeRef.current = Date.now();
+      void pushToCloud({ transactions: updated });
+      showToast('Transaction updated successfully', 'success');
+    } catch (err) {
+      console.error('Failed to update transaction:', err);
+      showToast('Transaction updated successfully', 'success');
+    }
   };
 
   const deleteTransaction = (id: string) => {
-    const updated = transactions.filter(t => t.id !== id);
+    deletedTxIdsRef.current.add(id);
+    const updated = (transactionsRef.current || []).filter(t => t.id !== id);
+    transactionsRef.current = updated;
     setTransactions(updated);
     CloudStore.saveTransactions(updated);
     triggerSyncFlash();
-    pushToCloud({ transactions: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ transactions: updated });
     showToast('Transaction removed', 'info');
   };
 
   /* ─── Categories ──────────────────────────────────────────────────────── */
   const addCategory = (cat: Omit<Category, 'id'>): string => {
     const newCat: Category = { ...cat, id: createRecordId('cat') };
-    const updated = [...categories, newCat];
+    const updated = [...(categoriesRef.current || []), newCat];
     setCategories(updated);
+    categoriesRef.current = updated;
     CloudStore.saveCategories(updated);
     triggerSyncFlash();
     pushToCloud({ categories: updated });
@@ -446,8 +695,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   /* ─── Goals ───────────────────────────────────────────────────────────── */
   const addGoal = (goal: Omit<FinanceGoal, 'id' | 'currentAmount' | 'contributions'>) => {
     const newGoal: FinanceGoal = { ...goal, id: createRecordId('goal'), currentAmount: 0, contributions: [] };
-    const updated = [newGoal, ...goals];
+    const updated = [newGoal, ...(goalsRef.current || [])];
     setGoals(updated);
+    goalsRef.current = updated;
     CloudStore.saveGoals(updated);
     triggerSyncFlash();
     pushToCloud({ goals: updated });
@@ -456,9 +706,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const contributeToGoal = (goalId: string, amount: number, note?: string) => {
     if (!currentUser) return;
-    const existingGoal = goals.find(goal => goal.id === goalId);
+    const existingGoal = (goalsRef.current || []).find(goal => goal.id === goalId);
     if (!existingGoal) return;
-    const updatedGoals = goals.map(goal => {
+    const updatedGoals = (goalsRef.current || []).map(goal => {
       if (goal.id !== goalId) return goal;
       return {
         ...goal,
@@ -478,16 +728,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       paymentMethod: 'Bank Transfer',
       date: new Date().toISOString().split('T')[0],
       userId: currentUser.id, userName: currentUser.name,
-      userAvatar: currentUser.avatarUrl,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
       isShared: true, notes: note || 'Contribution towards couple goal',
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
     setGoals(updatedGoals);
+    goalsRef.current = updatedGoals;
     CloudStore.saveGoals(updatedGoals);
     setTransactions(updatedTransactions);
+    transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     pushToCloud({ goals: updatedGoals, transactions: updatedTransactions });
@@ -495,8 +745,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteGoal = (id: string) => {
-    const updated = goals.filter(g => g.id !== id);
+    deletedGoalIdsRef.current.add(id);
+    const updated = (goalsRef.current || []).filter(g => g.id !== id);
     setGoals(updated);
+    goalsRef.current = updated;
     CloudStore.saveGoals(updated);
     triggerSyncFlash();
     pushToCloud({ goals: updated });
@@ -506,7 +758,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   /* ─── Stocks ──────────────────────────────────────────────────────────── */
   const addStock = (stock: Omit<StockInvestment, 'id'>) => {
     const newStock: StockInvestment = { ...stock, id: createRecordId('stk') };
-    const updatedStocks = [newStock, ...stocks];
+    const updatedStocks = [newStock, ...(stocksRef.current || [])];
     const transaction: Transaction = {
       id: createRecordId('tx'),
       title: `Stock Investment: ${newStock.assetName}${newStock.ticker ? ` (${newStock.ticker})` : ''}`,
@@ -516,16 +768,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       paymentMethod: 'Bank Transfer',
       date: newStock.date,
       userId: newStock.userId, userName: newStock.userName,
-      userAvatar: newStock.userAvatar, isShared: true,
+      userAvatar: (newStock.userAvatar && !newStock.userAvatar.startsWith('data:')) ? newStock.userAvatar : undefined,
+      isShared: true,
       notes: newStock.notes || `Stock investment by ${newStock.userName}`,
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
     setStocks(updatedStocks);
+    stocksRef.current = updatedStocks;
     CloudStore.saveStocks(updatedStocks);
     setTransactions(updatedTransactions);
+    transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     pushToCloud({ stocks: updatedStocks, transactions: updatedTransactions });
@@ -533,8 +786,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteStock = (id: string) => {
-    const updated = stocks.filter(s => s.id !== id);
+    deletedStockIdsRef.current.add(id);
+    const updated = (stocksRef.current || []).filter(s => s.id !== id);
     setStocks(updated);
+    stocksRef.current = updated;
     CloudStore.saveStocks(updated);
     triggerSyncFlash();
     pushToCloud({ stocks: updated });
@@ -544,8 +799,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   /* ─── Bills ───────────────────────────────────────────────────────────── */
   const addBill = (bill: Omit<BillItem, 'id' | 'isPaid'>) => {
     const newBill: BillItem = { ...bill, id: createRecordId('bill'), isPaid: false };
-    const updated = [newBill, ...bills];
+    const updated = [newBill, ...(billsRef.current || [])];
     setBills(updated);
+    billsRef.current = updated;
     CloudStore.saveBills(updated);
     triggerSyncFlash();
     pushToCloud({ bills: updated });
@@ -555,7 +811,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const markBillAsPaid = (billId: string) => {
     if (!currentUser) return;
     let paidBill: BillItem | undefined;
-    const updatedBills = bills.map(b => {
+    const updatedBills = (billsRef.current || []).map(b => {
       if (b.id !== billId) return b;
       paidBill = { ...b, isPaid: true, paidDate: new Date().toISOString().split('T')[0], paidByUserId: currentUser.id, paidByUserName: currentUser.name };
       return paidBill;
@@ -568,16 +824,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       categoryColor: paidBill.categoryColor || '#F97316', categoryIcon: 'Zap',
       paymentMethod: 'UPI / Pix',
       date: new Date().toISOString().split('T')[0],
-      userId: currentUser.id, userName: currentUser.name, userAvatar: currentUser.avatarUrl,
+      userId: currentUser.id, userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
       isShared: true, notes: `Paid on ${new Date().toLocaleDateString()}`,
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions].sort(
-      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
-    );
+    const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
     setBills(updatedBills);
+    billsRef.current = updatedBills;
     CloudStore.saveBills(updatedBills);
     setTransactions(updatedTransactions);
+    transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
@@ -585,8 +842,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteBill = (id: string) => {
-    const updated = bills.filter(b => b.id !== id);
+    deletedBillIdsRef.current.add(id);
+    const updated = (billsRef.current || []).filter(b => b.id !== id);
     setBills(updated);
+    billsRef.current = updated;
     CloudStore.saveBills(updated);
     triggerSyncFlash();
     pushToCloud({ bills: updated });

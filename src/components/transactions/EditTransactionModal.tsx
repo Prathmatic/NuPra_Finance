@@ -81,13 +81,14 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amount);
-    if (!title.trim() || isNaN(parsedAmount) || parsedAmount <= 0) return;
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
 
+    const finalTitle = title.trim() || selectedCategory.name;
     const paidByUser = (partner && paidByUserId === partner.id) ? partner : currentUser;
 
     updateTransaction({
       ...transaction,
-      title: title.trim(),
+      title: finalTitle,
       amount: parsedAmount,
       type,
       categoryId: selectedCategory.id,
@@ -95,10 +96,10 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       categoryColor: selectedCategory.color,
       categoryIcon: selectedCategory.icon,
       paymentMethod: paymentMethod === 'None' ? undefined : paymentMethod,
-      date,
+      date: date || transaction.date,
       userId: paidByUser.id,
       userName: paidByUser.name,
-      userAvatar: paidByUser.avatarUrl,
+      userAvatar: paidByUser.avatarUrl?.startsWith('data:') ? undefined : paidByUser.avatarUrl,
       isShared,
     });
 
@@ -192,8 +193,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Additional Description"
-              required
+              placeholder="Additional Description (Optional)"
               className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm focus:outline-none focus:border-indigo-500 placeholder:text-slate-500 transition-all"
             />
           </div>

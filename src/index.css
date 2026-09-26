@@ -6,6 +6,17 @@
 
 :root {
   color-scheme: dark;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+/* Mobile Safe Area Padding */
+.pt-safe-top {
+  padding-top: max(28px, env(safe-area-inset-top, 28px));
+}
+
+.pb-safe-bottom {
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
 }
 
 body {

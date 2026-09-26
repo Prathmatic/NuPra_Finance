@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { 
   X, 
   Plus, 
   ArrowDownCircle, 
   ArrowUpCircle,
-  Users
+  Users,
+  AlertCircle
 } from 'lucide-react';
 import { PaymentMethod } from '../../types/finance';
 import { CategoryDropdown } from '../categories/CategoryDropdown';
@@ -39,39 +40,59 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
-  const [selectedCatId, setSelectedCatId] = useState(
-    type === 'expense' ? 'cat-food' : 'cat-salary'
-  );
+  const [selectedCatId, setSelectedCatId] = useState('cat-food');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('None');
   const [paidByUserId, setPaidByUserId] = useState(currentUser?.id ?? '');
   const [isShared, setIsShared] = useState(true);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Reset fields on modal open
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage('');
+      setAmount('');
+      setTitle('');
+      setDate(new Date().toISOString().split('T')[0]);
+      setPaymentMethod('None');
+      setPaidByUserId(currentUser?.id ?? '');
+      setSelectedCatId(type === 'expense' ? 'cat-food' : 'cat-salary');
+    }
+  }, [isOpen, currentUser, type]);
 
   if (!isOpen || !currentUser) return null;
 
-  const currentCategories = categories.filter(
+  const currentCategories = (categories || []).filter(
     c => c.type === 'both' || c.type === type
   );
 
   const selectedCategory = currentCategories.find(c => c.id === selectedCatId) 
-    || categories.find(c => c.id === selectedCatId) 
+    || (categories || []).find(c => c.id === selectedCatId) 
     || currentCategories[0] 
-    || categories[0];
+    || (categories || [])[0]
+    || { id: 'cat-general', name: 'General', color: '#6366f1', icon: 'Tag', type: 'both' };
 
   const handleQuickAddAmount = (addValue: number) => {
     const current = parseFloat(amount) || 0;
     setAmount((current + addValue).toString());
+    setErrorMessage('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsedAmount = parseFloat(amount);
-    if (!title.trim() || isNaN(parsedAmount) || parsedAmount <= 0) return;
+  const executeAddTransaction = (keepOpenAfterRecord = false) => {
+    setErrorMessage('');
 
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setErrorMessage('Please enter an amount greater than 0.');
+      return false;
+    }
+
+    // Additional Description is completely optional: defaults to selected category name
+    const finalTitle = title.trim() || selectedCategory.name;
     const paidByUser = (partner && paidByUserId === partner.id) ? partner : currentUser;
 
     addTransaction({
-      title: title.trim(),
+      title: finalTitle,
       amount: parsedAmount,
       type,
       categoryId: selectedCategory.id,
@@ -79,18 +100,38 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       categoryColor: selectedCategory.color,
       categoryIcon: selectedCategory.icon,
       paymentMethod: paymentMethod === 'None' ? undefined : paymentMethod,
-      date,
+      date: date || new Date().toISOString().split('T')[0],
       userId: paidByUser.id,
       userName: paidByUser.name,
-      userAvatar: paidByUser.avatarUrl,
+      userAvatar: paidByUser.avatarUrl?.startsWith('data:') ? undefined : paidByUser.avatarUrl,
       isShared,
     });
 
-    // Reset fields & close popup immediately
-    setTitle('');
-    setAmount('');
-    setPaymentMethod('None');
-    onClose();
+    if (keepOpenAfterRecord) {
+      // Clear amount and title for next entry, keep category and modal open
+      setAmount('');
+      setTitle('');
+      setErrorMessage('');
+    } else {
+      // Immediately reset and CLOSE the page!
+      setTitle('');
+      setAmount('');
+      setPaymentMethod('None');
+      setErrorMessage('');
+      onClose();
+    }
+
+    return true;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeAddTransaction(false);
+  };
+
+  const handleRecordAndAddAnother = (e: React.MouseEvent) => {
+    e.preventDefault();
+    executeAddTransaction(true);
   };
 
   const currencySymbol = getCurrencySymbol(currency);
@@ -98,12 +139,18 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar">
+      <div 
+        className="relative w-full max-w-lg glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar"
+        style={{
+          marginTop: 'max(16px, env(safe-area-inset-top, 16px))',
+          marginBottom: 'max(16px, env(safe-area-inset-bottom, 16px))'
+        }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-white tracking-wide">
-              Add {type === 'expense' ? 'Expense' : 'Income'}
+              Record {type === 'expense' ? 'Expense' : 'Income'}
             </span>
           </div>
           <button
@@ -122,6 +169,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
               onClick={() => {
                 setType('expense');
                 setSelectedCatId('cat-food');
+                setErrorMessage('');
               }}
               className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all ${
                 type === 'expense'
@@ -137,6 +185,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
               onClick={() => {
                 setType('income');
                 setSelectedCatId('cat-salary');
+                setErrorMessage('');
               }}
               className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all ${
                 type === 'income'
@@ -159,9 +208,11 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
                 type="number"
                 step="any"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setErrorMessage('');
+                }}
                 placeholder="0.00"
-                required
                 autoFocus
                 className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-slate-800/80 border border-white/15 text-2xl font-black text-white focus:outline-none focus:border-rose-500 transition-all placeholder:text-slate-600"
               />
@@ -182,17 +233,24 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
             </div>
           </div>
 
-          {/* Description Input (Replaced 'What was this expense for?' with 'Additional Description') */}
+          {/* Error Message Alert */}
+          {errorMessage && (
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {/* Description Input (Optional Additional Description) */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Description
+              Additional Description <span className="text-[10px] text-slate-500 font-normal">(Optional)</span>
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={type === 'expense' ? 'Additional Description' : 'Income Source / Additional Description'}
-              required
+              placeholder={`e.g. ${selectedCategory.name} or item name`}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm focus:outline-none focus:border-rose-500 placeholder:text-slate-500 transition-all"
             />
           </div>
@@ -258,29 +316,31 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
           {/* Payment Method (Optional) & Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Payment Method <span className="text-[10px] text-slate-500 font-normal">(Optional)</span>
               </label>
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs focus:outline-none focus:border-rose-500 transition-all"
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-xs focus:outline-none focus:border-rose-500 transition-all cursor-pointer"
               >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method.value} value={method.value}>
-                    {method.label}
+                {PAYMENT_METHODS.map((pm) => (
+                  <option key={pm.value} value={pm.value} className="bg-slate-900 text-white">
+                    {pm.label}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Date</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Date
+              </label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs focus:outline-none focus:border-rose-500 transition-all"
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-xs focus:outline-none focus:border-rose-500 transition-all"
               />
             </div>
           </div>
@@ -302,14 +362,25 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
             />
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            className="w-full py-3 rounded-2xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2"
-          >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
-            <span>Record {type === 'expense' ? 'Expense' : 'Income'}</span>
-          </button>
+          {/* Action Buttons: Primary Record (Closes modal immediately) + Optional Add Another */}
+          <div className="space-y-2 pt-1">
+            <button
+              type="submit"
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-95 active:scale-[0.99] text-white font-extrabold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-5 h-5 stroke-[2.5]" />
+              <span>Record {type === 'expense' ? 'Expense' : 'Income'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRecordAndAddAnother}
+              className="w-full py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white font-semibold text-xs transition-all active:scale-[0.99] flex items-center justify-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Record & Add Another</span>
+            </button>
+          </div>
         </form>
       </div>
     </div>

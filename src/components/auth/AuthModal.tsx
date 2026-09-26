@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { X, Camera, Link2, Heart, ShieldCheck, LogOut, User } from 'lucide-react';
+import { compressAvatarImage } from '../../utils/imageCompressor';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -23,12 +24,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => { if (typeof reader.result === 'string') setAvatarUrl(reader.result); };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressAvatarImage(file, 128, 0.75);
+      if (compressed) setAvatarUrl(compressed);
+    } catch (err) {
+      console.warn('Avatar compression error:', err);
+    }
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {

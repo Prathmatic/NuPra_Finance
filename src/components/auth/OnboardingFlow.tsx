@@ -18,6 +18,7 @@ import {
 } from '../../services/supabaseFinance';
 import { isSupabaseConfigured } from '../../services/supabaseClient';
 import { NPIcon } from '../common/NPIcon';
+import { compressAvatarImage } from '../../utils/imageCompressor';
 
 interface OnboardingFlowProps {
   onComplete: (user: UserProfile, vault: CoupleVault) => Promise<void> | void;
@@ -248,18 +249,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
     }
   };
 
-  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 2_000_000) {
-      setError('Choose a photo smaller than 2 MB.');
-      return;
+    try {
+      setLoading(true);
+      setError('');
+      const compressed = await compressAvatarImage(file, 128, 0.75);
+      if (compressed) setAvatarUrl(compressed);
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setLoading(false);
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setAvatarUrl(reader.result);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleSaveProfile = async () => {
@@ -371,7 +373,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-gradient-to-br from-[#070a13] via-[#090e1a] to-[#0f172a]">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-gradient-to-br from-[#070a13] via-[#090e1a] to-[#0f172a]"
+      style={{
+        paddingTop: 'max(32px, env(safe-area-inset-top, 32px))',
+        paddingBottom: 'max(32px, env(safe-area-inset-bottom, 32px))'
+      }}
+    >
       <div className="absolute top-1/4 left-1/4 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
       

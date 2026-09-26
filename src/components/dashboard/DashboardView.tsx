@@ -49,6 +49,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   // Filter transactions based on viewMode ('both' | 'me' | 'partner')
+  const getTxAvatar = (tx: Transaction) => {
+    return tx.userAvatar || (tx.userId === currentUser?.id ? currentUser?.avatarUrl : partner?.avatarUrl);
+  };
+
   const filteredTxs = useMemo(() => {
     return transactions.filter(tx => {
       if (viewMode === 'me') return currentUser ? tx.userId === currentUser.id : true;
@@ -538,8 +542,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
                     </p>
                     <div className="flex items-center justify-end gap-1 mt-1">
-                      {tx.userAvatar && (
-                        <img src={tx.userAvatar} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
+                      {getTxAvatar(tx) && (
+                        <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
                       )}
                       <span className="text-[10px] text-slate-400">{tx.userName}</span>
                     </div>
