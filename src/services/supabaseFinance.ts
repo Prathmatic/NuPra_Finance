@@ -10,6 +10,7 @@ import type {
   UserProfile,
   BudgetsConfig,
 } from '../types/finance';
+import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { getSupabase } from './supabaseClient';
 
 export interface FinanceSnapshot {
@@ -45,7 +46,7 @@ const emptySnapshot = (): FinanceSnapshot => ({
   goals: [],
   stocks: [],
   bills: [],
-  categories: [],
+  categories: DEFAULT_CATEGORIES,
   currency: 'INR',
   budgets: { couple: 0, me: 0, partner: 0 },
 });
@@ -98,11 +99,17 @@ export async function verifyEmailCode(email: string, token: string): Promise<Aut
 export async function getSignedInUser(): Promise<AuthUser | null> {
   const client = getSupabase();
   const { data: sessionData, error: sessionError } = await client.auth.getSession();
-  if (sessionError) throw sessionError;
-  if (!sessionData.session) return null;
-  const { data, error } = await client.auth.getUser();
-  if (error) throw error;
-  return data.user;
+  if (sessionError || !sessionData?.session) return null;
+  if (sessionData.session.user) {
+    return sessionData.session.user;
+  }
+  try {
+    const { data, error } = await client.auth.getUser();
+    if (error) return null;
+    return data.user;
+  } catch {
+    return null;
+  }
 }
 
 export async function signOut(): Promise<void> {
@@ -271,15 +278,37 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
     .eq('vault_id', vaultId)
     .maybeSingle();
   if (stateError) throw stateError;
-  const snapshot: FinanceSnapshot = stateRow ? {
-    transactions: stateRow.transactions as Transaction[],
-    goals: stateRow.goals as FinanceGoal[],
-    stocks: stateRow.stocks as StockInvestment[],
-    bills: stateRow.bills as BillItem[],
-    categories: stateRow.categories as Category[],
-    currency: stateRow.currency as CurrencyCode,
-    budgets: (stateRow as any).budgets || { couple: Number(vaultRow.monthly_budget) || 0, me: 0, partner: 0 },
-  } : emptySnapshot();
+
+  let snapshot: FinanceSnapshot;
+  if (stateRow) {
+    const rawCategories = (stateRow.categories as Category[]) || [];
+    const budgetMeta = rawCategories.find(c => c.id === '__budgets_config__');
+    const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__');
+    let parsedBudgets: BudgetsConfig = { couple: Number(vaultRow.monthly_budget) || 0, me: 0, partner: 0 };
+    if (budgetMeta) {
+      try {
+        const parsed = JSON.parse(budgetMeta.name);
+        if (typeof parsed === 'object' && parsed !== null) {
+          parsedBudgets = {
+            couple: Number(parsed.couple) || Number(vaultRow.monthly_budget) || 0,
+            me: Number(parsed.me) || 0,
+            partner: Number(parsed.partner) || 0,
+          };
+        }
+      } catch {}
+    }
+    snapshot = {
+      transactions: (stateRow.transactions as Transaction[]) || [],
+      goals: (stateRow.goals as FinanceGoal[]) || [],
+      stocks: (stateRow.stocks as StockInvestment[]) || [],
+      bills: (stateRow.bills as BillItem[]) || [],
+      categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
+      currency: (stateRow.currency as CurrencyCode) || 'INR',
+      budgets: parsedBudgets,
+    };
+  } else {
+    snapshot = emptySnapshot();
+  }
 
   const currentUser = toProfile(profileRow, vaultId);
   const partner = ownerId === authUser.id ? partnerProfile : ownerProfile;
@@ -288,19 +317,48 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
 
 export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnapshot): Promise<void> {
   const user = await getSignedInUser();
-  if (!user) throw new Error('Your Supabase session has expired. Sign in again.');
+  if (!user) {
+    console.warn('saveFinanceSnapshot: User is not authenticated in Supabase.');
+    return;
+  }
+
+  const budgetsToPersist = snapshot.budgets || { couple: 0, me: 0, partner: 0 };
+  const categoriesToPersist = [
+    ...(snapshot.categories || []).filter(c => c.id !== '__budgets_config__'),
+    {
+      id: '__budgets_config__',
+      name: JSON.stringify(budgetsToPersist),
+      icon: '',
+      color: '',
+    },
+  ];
+
   const { error } = await getSupabase().from('vault_finance_state').upsert({
     vault_id: vaultId,
-    transactions: snapshot.transactions,
-    goals: snapshot.goals,
-    stocks: snapshot.stocks,
-    bills: snapshot.bills,
-    categories: snapshot.categories,
-    currency: snapshot.currency,
+    transactions: snapshot.transactions || [],
+    goals: snapshot.goals || [],
+    stocks: snapshot.stocks || [],
+    bills: snapshot.bills || [],
+    categories: categoriesToPersist,
+    currency: snapshot.currency || 'INR',
     updated_by: user.id,
     updated_at: new Date().toISOString(),
-  });
-  if (error) throw error;
+  }, { onConflict: 'vault_id' });
+
+  if (error) {
+    console.error('Supabase saveFinanceSnapshot error:', error);
+    throw error;
+  }
+
+  // Also update couple_vaults.monthly_budget if permissions allow
+  try {
+    await getSupabase()
+      .from('couple_vaults')
+      .update({ monthly_budget: budgetsToPersist.couple })
+      .eq('id', vaultId);
+  } catch {
+    // Non-fatal if RLS restricts direct table update on couple_vaults
+  }
 }
 
 export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnapshot | null> {
@@ -311,13 +369,32 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+
+  const rawCategories = (data.categories as Category[]) || [];
+  const budgetMeta = rawCategories.find(c => c.id === '__budgets_config__');
+  const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__');
+  let parsedBudgets: BudgetsConfig = { couple: 0, me: 0, partner: 0 };
+  if (budgetMeta) {
+    try {
+      const parsed = JSON.parse(budgetMeta.name);
+      if (typeof parsed === 'object' && parsed !== null) {
+        parsedBudgets = {
+          couple: Number(parsed.couple) || 0,
+          me: Number(parsed.me) || 0,
+          partner: Number(parsed.partner) || 0,
+        };
+      }
+    } catch {}
+  }
+
   return {
-    transactions: data.transactions as Transaction[],
-    goals: data.goals as FinanceGoal[],
-    stocks: data.stocks as StockInvestment[],
-    bills: data.bills as BillItem[],
-    categories: data.categories as Category[],
-    currency: data.currency as CurrencyCode,
+    transactions: (data.transactions as Transaction[]) || [],
+    goals: (data.goals as FinanceGoal[]) || [],
+    stocks: (data.stocks as StockInvestment[]) || [],
+    bills: (data.bills as BillItem[]) || [],
+    categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
+    currency: (data.currency as CurrencyCode) || 'INR',
+    budgets: parsedBudgets,
   };
 }
 
