@@ -303,10 +303,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
           {step === 'verify' && (
             <>
               <p className="text-center text-sm text-slate-300">{notice || `Enter the code sent to ${email}.`}</p>
-              <input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-4 text-center text-2xl font-black tracking-[0.3em] text-white placeholder:text-slate-600 focus:border-rose-500 focus:outline-none" />
+              <input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 8))} inputMode="numeric" autoComplete="one-time-code" maxLength={8} placeholder="Enter code" className="w-full rounded-xl border border-white/10 bg-slate-800/80 px-4 py-4 text-center text-2xl font-black tracking-[0.25em] text-white placeholder:text-slate-600 focus:border-rose-500 focus:outline-none" />
               <div className="flex gap-3">
                 <button onClick={() => { setError(''); setStep('identity'); }} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300"><ArrowLeft className="h-4 w-4" /> Back</button>
-                <button onClick={handleVerifyCode} disabled={loading || code.length !== 6} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-40">
+                <button onClick={handleVerifyCode} disabled={loading || code.length < 6} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-40">
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Verify <ArrowRight className="h-4 w-4" /></>}
                 </button>
               </div>

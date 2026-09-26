@@ -66,12 +66,28 @@ export async function requestEmailCode(email: string): Promise<void> {
 }
 
 export async function verifyEmailCode(email: string, token: string): Promise<AuthUser> {
-  const { data, error } = await getSupabase().auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: token.trim(),
+  const normalizedEmail = email.trim().toLowerCase();
+  const trimmedToken = token.trim();
+  const client = getSupabase();
+
+  let { data, error } = await client.auth.verifyOtp({
+    email: normalizedEmail,
+    token: trimmedToken,
     type: 'email',
   });
-  if (error) throw error;
+
+  if (error) {
+    const fallback = await client.auth.verifyOtp({
+      email: normalizedEmail,
+      token: trimmedToken,
+      type: 'signup',
+    });
+    if (!fallback.error && fallback.data.user) {
+      return fallback.data.user;
+    }
+    throw error;
+  }
+
   if (!data.user) throw new Error('Email verification did not return a user.');
   return data.user;
 }
