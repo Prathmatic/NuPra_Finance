@@ -47,8 +47,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-rose-500 to-indigo-600 text-white">
-              <Heart className="w-5 h-5 fill-white" />
+            <div className="p-2 rounded-xl bg-gradient-to-tr from-emerald-500 to-indigo-600 text-white">
+              <User className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Profile & Vault</h2>

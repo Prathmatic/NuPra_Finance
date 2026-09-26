@@ -8,6 +8,7 @@ import type {
   StockInvestment,
   Transaction,
   UserProfile,
+  BudgetsConfig,
 } from '../types/finance';
 import { getSupabase } from './supabaseClient';
 
@@ -18,6 +19,7 @@ export interface FinanceSnapshot {
   bills: BillItem[];
   categories: Category[];
   currency: CurrencyCode;
+  budgets?: BudgetsConfig;
 }
 
 export interface UserWorkspace {
@@ -45,6 +47,7 @@ const emptySnapshot = (): FinanceSnapshot => ({
   bills: [],
   categories: [],
   currency: 'INR',
+  budgets: { couple: 0, me: 0, partner: 0 },
 });
 
 const toProfile = (row: any, vaultId = ''): UserProfile => ({
@@ -256,7 +259,9 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
     partner1: ownerProfile,
     partner2: partnerProfile,
     currency: vaultRow.currency as CurrencyCode,
-    monthlyBudget: Number(vaultRow.monthly_budget),
+    monthlyBudget: Number(vaultRow.monthly_budget) || 0,
+    myBudget: 0,
+    partnerBudget: 0,
     createdAt: vaultRow.created_at,
   };
 
@@ -266,13 +271,14 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
     .eq('vault_id', vaultId)
     .maybeSingle();
   if (stateError) throw stateError;
-  const snapshot = stateRow ? {
+  const snapshot: FinanceSnapshot = stateRow ? {
     transactions: stateRow.transactions as Transaction[],
     goals: stateRow.goals as FinanceGoal[],
     stocks: stateRow.stocks as StockInvestment[],
     bills: stateRow.bills as BillItem[],
     categories: stateRow.categories as Category[],
     currency: stateRow.currency as CurrencyCode,
+    budgets: (stateRow as any).budgets || { couple: Number(vaultRow.monthly_budget) || 0, me: 0, partner: 0 },
   } : emptySnapshot();
 
   const currentUser = toProfile(profileRow, vaultId);

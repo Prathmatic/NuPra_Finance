@@ -13,10 +13,9 @@ const GOAL_ICONS = [
   { name: 'Target', label: 'General' },
   { name: 'Plane', label: 'Travel' },
   { name: 'Home', label: 'Home' },
-  { name: 'Heart', label: 'Wedding' },
   { name: 'ShieldCheck', label: 'Emergency' },
   { name: 'Car', label: 'Vehicle' },
-  { name: 'Sparkles', label: 'Luxury' },
+  { name: 'Sparkles', label: 'Milestone' },
 ];
 
 export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) => {
@@ -24,8 +23,8 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
   const [title, setTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [targetDate, setTargetDate] = useState('2027-01-01');
-  const [color, setColor] = useState('#E11D48');
-  const [icon, setIcon] = useState('Heart');
+  const [color, setColor] = useState('#3B82F6');
+  const [icon, setIcon] = useState('Target');
   const [notes, setNotes] = useState('');
 
   if (!isOpen) return null;

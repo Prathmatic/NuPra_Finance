@@ -1,22 +1,24 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { 
   TrendingUp, 
-  TrendingDown, 
   PiggyBank, 
   Target, 
   CalendarCheck, 
   ArrowUpRight, 
   ArrowDownRight, 
-  Sparkles, 
   Plus, 
-  AlertCircle,
   Users,
   ChevronRight,
-  ShieldAlert
+  Settings2,
+  Edit2
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
+import { MonthNavigator } from '../common/MonthNavigator';
+import { BudgetSettingsModal } from './BudgetSettingsModal';
+import { EditTransactionModal } from '../transactions/EditTransactionModal';
+import { Transaction } from '../../types/finance';
 
 interface DashboardViewProps {
   onOpenAddModal: () => void;
@@ -32,18 +34,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const { 
     currentUser, 
     partner, 
-    vault, 
     transactions, 
     goals, 
     stocks, 
     bills, 
     currency, 
     viewMode, 
-    setActiveTab 
+    setActiveTab,
+    selectedMonth,
+    budgets
   } = useFinance();
 
-  // Current Month calculations
-  const currentMonthPrefix = new Date().toISOString().slice(0, 7); // "2026-09"
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   // Filter transactions based on viewMode ('both' | 'me' | 'partner')
   const filteredTxs = useMemo(() => {
@@ -54,15 +57,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
   }, [transactions, viewMode, currentUser, partner]);
 
-  // Current month income & expenses
-  const { monthlyIncome, monthlyExpense, myExpense, partnerExpense } = useMemo(() => {
+  // Selected month income & expenses
+  const { monthlyIncome, monthlyExpense, myExpense, partnerExpense, totalCoupleExpense } = useMemo(() => {
     let income = 0;
     let expense = 0;
     let myExp = 0;
     let partnerExp = 0;
+    let coupleTotalExp = 0;
+
+    transactions.forEach(t => {
+      if (t.date.startsWith(selectedMonth)) {
+        if (t.type === 'expense') {
+          coupleTotalExp += t.amount;
+        }
+      }
+    });
 
     filteredTxs.forEach(t => {
-      if (t.date.startsWith(currentMonthPrefix)) {
+      if (t.date.startsWith(selectedMonth)) {
         if (t.type === 'income') {
           income += t.amount;
         } else {
@@ -81,21 +93,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       monthlyExpense: expense,
       myExpense: myExp,
       partnerExpense: partnerExp,
+      totalCoupleExpense: coupleTotalExp,
     };
-  }, [filteredTxs, currentMonthPrefix, currentUser]);
+  }, [filteredTxs, transactions, selectedMonth, currentUser]);
 
   const monthlySavings = monthlyIncome - monthlyExpense;
   const savingsRate = monthlyIncome > 0 ? Math.round((monthlySavings / monthlyIncome) * 100) : 0;
-  const budgetLimit = vault!.monthlyBudget || 120000;
-  const budgetUsedPercent = Math.min(100, Math.round((monthlyExpense / budgetLimit) * 100));
 
-  // Current month stocks total
+  // Budget calculations
+  const coupleLimit = budgets.couple || 0;
+  const myLimit = budgets.me || 0;
+  const partnerLimit = budgets.partner || 0;
+
+  const couplePercent = coupleLimit > 0 ? Math.round((totalCoupleExpense / coupleLimit) * 100) : 0;
+  const myPercent = myLimit > 0 ? Math.round((myExpense / myLimit) * 100) : 0;
+  const partnerPercent = partnerLimit > 0 ? Math.round((partnerExpense / partnerLimit) * 100) : 0;
+
+  // Selected month stocks total
   const monthStocks = useMemo(() => {
     let total = 0;
     let myStock = 0;
     let partnerStock = 0;
 
-    stocks.filter(s => s.monthYear === currentMonthPrefix).forEach(s => {
+    stocks.filter(s => s.monthYear === selectedMonth).forEach(s => {
       total += s.investedAmount;
       if (s.userId === currentUser!.id) {
         myStock += s.investedAmount;
@@ -105,7 +125,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
 
     return { total, myStock, partnerStock };
-  }, [stocks, currentMonthPrefix, currentUser]);
+  }, [stocks, selectedMonth, currentUser]);
 
   // Pending bills
   const pendingBills = useMemo(() => {
@@ -113,26 +133,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [bills]);
 
   return (
-    <div className="space-y-5 pb-20 animate-in fade-in duration-300">
+    <div className="space-y-4 pb-20 animate-in fade-in duration-300">
+      {/* Month Navigator Header Bar */}
+      <MonthNavigator />
+
       {/* Couple Welcome & Status Banner */}
-      <div className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-rose-950/80 via-slate-900 to-indigo-950/80 border border-white/10 shadow-2xl">
-        <div className="absolute top-0 right-0 -mt-6 -mr-6 w-36 h-36 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/80 border border-white/10 shadow-2xl">
+        <div className="absolute top-0 right-0 -mt-6 -mr-6 w-36 h-36 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 -mb-6 -ml-6 w-36 h-36 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase font-extrabold tracking-widest text-rose-400">
+            <span className="text-xs uppercase font-extrabold tracking-widest text-emerald-400">
               {viewMode === 'both' ? 'Shared Couple Balance' : viewMode === 'me' ? `${currentUser!.name}'s Personal` : `${partner?.name}'s Personal`}
             </span>
           </div>
-          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/10 font-medium">
-            September 2026
+          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/10 font-semibold">
+            {selectedMonth}
           </span>
         </div>
 
         {/* Primary Savings / Net Worth Card */}
         <div className="space-y-1">
-          <p className="text-xs text-slate-400">Net Monthly Savings</p>
+          <p className="text-xs text-slate-400 font-medium">Net Monthly Savings</p>
           <div className="flex items-baseline gap-2.5">
             <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
               {formatCurrency(monthlySavings, currency)}
@@ -176,7 +199,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {viewMode === 'both' && partner && (
           <div className="mt-3.5 pt-3 border-t border-white/5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
-              <img src={currentUser!.avatarUrl} alt={currentUser!.name} className="w-5 h-5 rounded-full object-cover ring-1 ring-rose-500" />
+              <img src={currentUser!.avatarUrl} alt={currentUser!.name} className="w-5 h-5 rounded-full object-cover ring-1 ring-emerald-500" />
               <span className="text-slate-300 font-medium">{currentUser!.name}:</span>
               <span className="text-rose-400 font-bold">{formatCurrency(myExpense, currency)}</span>
             </div>
@@ -190,39 +213,144 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
 
-      {/* Monthly Budget Progress Card */}
-      <div className="glass-card rounded-3xl p-4.5 border border-white/10">
-        <div className="flex items-center justify-between mb-2">
+      {/* Monthly Budget Limits Widget (3 Progress Cards: Couple Joint, My Spending, Partner Spending) */}
+      <div className="glass-card rounded-3xl p-4.5 border border-white/10 space-y-3.5 shadow-xl">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <PiggyBank className="w-4 h-4 text-amber-400" />
-            <span className="text-xs font-bold text-white uppercase tracking-wider">Couple Monthly Budget</span>
+            <span className="text-xs font-bold text-white uppercase tracking-wider">
+              Monthly Budget Limits
+            </span>
           </div>
-          <span className="text-xs font-semibold text-slate-300">
-            {formatCurrency(monthlyExpense, currency)} / {formatCurrency(budgetLimit, currency)}
-          </span>
+          <button
+            onClick={() => setIsBudgetModalOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-all active:scale-95"
+          >
+            <Settings2 className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Set Limits</span>
+          </button>
         </div>
 
-        {/* Progress Bar */}
-        <div className="w-full h-3 rounded-full bg-slate-800 overflow-hidden relative">
-          <div 
-            className={`h-full rounded-full transition-all duration-500 ${
-              budgetUsedPercent > 90 
-                ? 'bg-rose-500' 
-                : budgetUsedPercent > 70 
-                ? 'bg-amber-500' 
-                : 'bg-gradient-to-r from-emerald-500 to-teal-400'
-            }`}
-            style={{ width: `${budgetUsedPercent}%` }}
-          />
+        {/* 1. Couple Joint Budget Progress */}
+        <div className="p-3 rounded-2xl bg-slate-900/70 border border-white/5 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="font-bold text-white">Couple Joint Budget</span>
+            </div>
+            <span className="font-semibold text-slate-300">
+              {coupleLimit > 0 ? (
+                <>
+                  <strong className="text-white">{formatCurrency(totalCoupleExpense, currency)}</strong>
+                  {' / '}
+                  {formatCurrency(coupleLimit, currency)}
+                </>
+              ) : (
+                <span className="text-slate-400 text-[11px]">No limit set (₹0)</span>
+              )}
+            </span>
+          </div>
+
+          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div 
+              className={`h-full rounded-full transition-all duration-500 ${
+                coupleLimit === 0
+                  ? 'bg-slate-700 w-0'
+                  : couplePercent > 90
+                  ? 'bg-rose-500'
+                  : couplePercent > 70
+                  ? 'bg-amber-500'
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+              }`}
+              style={{ width: `${coupleLimit === 0 ? 0 : Math.min(100, couplePercent)}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] text-slate-400">
+            <span>{coupleLimit > 0 ? `${couplePercent}% spent` : 'Tap Set Limits to configure'}</span>
+            <span>
+              {coupleLimit > 0 
+                ? (coupleLimit >= totalCoupleExpense 
+                    ? `${formatCurrency(coupleLimit - totalCoupleExpense, currency)} left to spend`
+                    : `Over budget by ${formatCurrency(totalCoupleExpense - coupleLimit, currency)}`
+                  )
+                : `${formatCurrency(totalCoupleExpense, currency)} spent this month`
+              }
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between mt-2 text-[11px] text-slate-400">
-          <span>{budgetUsedPercent}% spent</span>
-          <span>{formatCurrency(Math.max(0, budgetLimit - monthlyExpense), currency)} left to spend</span>
+        {/* 2 & 3. Individual Split: My Budget & Partner Budget */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* My Budget */}
+          <div className="p-3 rounded-2xl bg-slate-900/50 border border-white/5 space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-4 h-4 rounded-full object-cover ring-1 ring-emerald-500 shrink-0" />
+                <span className="font-bold text-white text-[11px] truncate">{currentUser.name} (Me)</span>
+              </div>
+              <span className="font-semibold text-[11px] text-slate-300">
+                {myLimit > 0 ? `${formatCurrency(myExpense, currency)} / ${formatCurrency(myLimit, currency)}` : `${formatCurrency(myExpense, currency)} spent`}
+              </span>
+            </div>
+
+            <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 ${
+                  myLimit === 0 ? 'w-0' : myPercent > 90 ? 'bg-rose-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${myLimit === 0 ? 0 : Math.min(100, myPercent)}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <span>{myLimit > 0 ? `${myPercent}% spent` : 'No personal cap'}</span>
+              <span>
+                {myLimit > 0 
+                  ? `${formatCurrency(Math.max(0, myLimit - myExpense), currency)} left`
+                  : 'Limit: ₹0'
+                }
+              </span>
+            </div>
+          </div>
+
+          {/* Partner Budget */}
+          {partner && (
+            <div className="p-3 rounded-2xl bg-slate-900/50 border border-white/5 space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5">
+                  <img src={partner.avatarUrl} alt={partner.name} className="w-4 h-4 rounded-full object-cover ring-1 ring-purple-500 shrink-0" />
+                  <span className="font-bold text-white text-[11px] truncate">{partner.name}</span>
+                </div>
+                <span className="font-semibold text-[11px] text-slate-300">
+                  {partnerLimit > 0 ? `${formatCurrency(partnerExpense, currency)} / ${formatCurrency(partnerLimit, currency)}` : `${formatCurrency(partnerExpense, currency)} spent`}
+                </span>
+              </div>
+
+              <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    partnerLimit === 0 ? 'w-0' : partnerPercent > 90 ? 'bg-rose-500' : 'bg-purple-500'
+                  }`}
+                  style={{ width: `${partnerLimit === 0 ? 0 : Math.min(100, partnerPercent)}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-slate-400">
+                <span>{partnerLimit > 0 ? `${partnerPercent}% spent` : 'No personal cap'}</span>
+                <span>
+                  {partnerLimit > 0 
+                    ? `${formatCurrency(Math.max(0, partnerLimit - partnerExpense), currency)} left`
+                    : 'Limit: ₹0'
+                  }
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Stock Investment Month Card (Key Requirement) */}
+      {/* Stock Investment Month Card */}
       <div className="glass-card rounded-3xl p-4.5 border border-white/10 relative overflow-hidden">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -230,8 +358,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <TrendingUp className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">Stock Market Portfolio</h3>
-              <p className="text-[11px] text-slate-400">Investments made this month</p>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white">Stock Portfolio</h3>
+              <p className="text-[11px] text-slate-400">Investments in {selectedMonth}</p>
             </div>
           </div>
           <button
@@ -245,7 +373,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="flex items-baseline justify-between bg-slate-900/60 p-3 rounded-2xl border border-white/5">
           <div>
-            <p className="text-[11px] text-slate-400">Total Invested This Month</p>
+            <p className="text-[11px] text-slate-400">Invested This Month</p>
             <p className="text-xl font-black text-indigo-400">{formatCurrency(monthStocks.total, currency)}</p>
           </div>
           <button
@@ -267,16 +395,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
 
-      {/* Finance Goals Carousel Snapshot */}
+      {/* Finance Goals Snapshot */}
       <div>
         <div className="flex items-center justify-between mb-3 px-1">
           <div className="flex items-center gap-2">
-            <Target className="w-4 h-4 text-rose-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-white">Finance Goals Deficit</h3>
+            <Target className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white">Finance Goals</h3>
           </div>
           <button
             onClick={() => setActiveTab('goals')}
-            className="flex items-center text-xs font-semibold text-rose-400 hover:text-rose-300"
+            className="flex items-center text-xs font-semibold text-emerald-400 hover:text-emerald-300"
           >
             <span>All Goals</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -292,14 +420,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div 
                 key={goal.id} 
                 onClick={() => setActiveTab('goals')}
-                className="glass-card p-4 rounded-3xl border border-white/10 hover:border-rose-500/40 cursor-pointer transition-all space-y-2.5"
+                className="glass-card p-4 rounded-3xl border border-white/10 hover:border-emerald-500/40 cursor-pointer transition-all space-y-2.5"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white truncate max-w-[170px]">{goal.title}</span>
-                  <span className="text-xs font-black text-rose-400">{progress}%</span>
+                  <span className="text-xs font-black text-emerald-400">{progress}%</span>
                 </div>
 
-                {/* Progress bar */}
                 <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all"
@@ -308,7 +435,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Current: {formatCurrency(goal.currentAmount, currency)}</span>
+                  <span className="text-slate-400">Saved: {formatCurrency(goal.currentAmount, currency)}</span>
                   <span className="text-amber-400 font-semibold">Needed: {formatCurrency(neededMore, currency)}</span>
                 </div>
               </div>
@@ -317,7 +444,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Upcoming Unpaid Bills Alert */}
+      {/* Upcoming Unpaid Bills */}
       {pendingBills.length > 0 && (
         <div className="glass-card p-4 rounded-3xl border border-orange-500/20 bg-orange-950/20">
           <div className="flex items-center justify-between mb-2.5">
@@ -347,7 +474,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* Recent Transactions List with Partner Avatars */}
+      {/* Recent Transactions List with Partner Avatars & Tap to Edit */}
       <div>
         <div className="flex items-center justify-between mb-3 px-1">
           <span className="text-xs font-bold uppercase tracking-wider text-white">Recent Transactions</span>
@@ -360,46 +487,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
 
-        <div className="space-y-2">
-          {filteredTxs.slice(0, 5).map((tx) => (
-            <div
-              key={tx.id}
-              className="glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/50 transition-all"
+        {filteredTxs.length === 0 ? (
+          <div className="glass-card p-6 rounded-2xl border border-white/5 text-center space-y-2">
+            <p className="text-xs text-slate-400">No transactions recorded yet</p>
+            <button
+              onClick={onOpenAddModal}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-xs font-bold transition-all inline-flex items-center gap-1"
             >
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
-                >
-                  <CategoryIcon name={tx.categoryIcon} size={18} />
+              <Plus className="w-3.5 h-3.5" />
+              <span>Record First Expense</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredTxs.slice(0, 5).map((tx) => (
+              <div
+                key={tx.id}
+                onClick={() => setEditingTransaction(tx)}
+                className="glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/10 cursor-pointer transition-all group"
+                title="Tap to edit this transaction"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+                  >
+                    <CategoryIcon name={tx.categoryIcon} size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                      <span>{formatDate(tx.date)}</span>
+                      {tx.paymentMethod && tx.paymentMethod !== 'None' && (
+                        <>
+                          <span>•</span>
+                          <span className="text-slate-300 font-medium">{tx.paymentMethod}</span>
+                        </>
+                      )}
+                      <span>•</span>
+                      <span className="text-slate-400 font-medium">{tx.categoryName}</span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-white truncate max-w-[160px] sm:max-w-xs">{tx.title}</p>
-                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
-                    <span>{formatDate(tx.date)}</span>
-                    <span>•</span>
-                    <span className="text-slate-300 font-medium">{tx.paymentMethod}</span>
+
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <p className={`text-xs font-black ${
+                      tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
+                    }`}>
+                      {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
+                    </p>
+                    <div className="flex items-center justify-end gap-1 mt-1">
+                      {tx.userAvatar && (
+                        <img src={tx.userAvatar} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
+                      )}
+                      <span className="text-[10px] text-slate-400">{tx.userName}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-1 rounded-lg text-slate-500 group-hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
+                    <Edit2 className="w-3.5 h-3.5" />
                   </div>
                 </div>
               </div>
-
-              <div className="text-right">
-                <p className={`text-xs font-black ${
-                  tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
-                }`}>
-                  {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
-                </p>
-                <div className="flex items-center justify-end gap-1 mt-1">
-                  {tx.userAvatar && (
-                    <img src={tx.userAvatar} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
-                  )}
-                  <span className="text-[10px] text-slate-400">{tx.userName}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Edit Transaction Modal */}
+      <EditTransactionModal
+        transaction={editingTransaction}
+        isOpen={Boolean(editingTransaction)}
+        onClose={() => setEditingTransaction(null)}
+      />
+
+      {/* Budget Limits Settings Modal */}
+      <BudgetSettingsModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)}
+      />
     </div>
   );
 };

@@ -29,7 +29,7 @@ export const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ isOpen, onCl
     e.preventDefault();
     if (!name.trim()) return;
 
-    addCategory({
+    const newId = addCategory({
       name: name.trim(),
       icon,
       color,
@@ -39,7 +39,7 @@ export const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ isOpen, onCl
 
     setName('');
     if (onCreated) {
-      onCreated('cat-' + Date.now());
+      onCreated(newId);
     }
     onClose();
   };
