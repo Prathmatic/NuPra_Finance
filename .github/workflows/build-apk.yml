@@ -2,9 +2,9 @@ name: Build NuPra Finance APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, NuPra_nupur_version ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, NuPra_nupur_version ]
   workflow_dispatch:
 
 permissions:
@@ -82,7 +82,7 @@ jobs:
           retention-days: 30
 
       - name: Create or Update GitHub Release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/NuPra_nupur_version')
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
