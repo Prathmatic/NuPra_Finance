@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { 
   X, 
-  Plus, 
+  Check, 
+  Trash2, 
   ArrowDownCircle, 
   ArrowUpCircle,
   Users
 } from 'lucide-react';
-import { PaymentMethod } from '../../types/finance';
+import { Transaction, PaymentMethod } from '../../types/finance';
 import { CategoryDropdown } from '../categories/CategoryDropdown';
 import { getCurrencySymbol } from '../../utils/formatters';
 
-interface AddTransactionModalProps {
+interface EditTransactionModalProps {
+  transaction: Transaction | null;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -27,27 +29,45 @@ const PAYMENT_METHODS: { label: string; value: PaymentMethod }[] = [
   { label: 'Other', value: 'Other' },
 ];
 
-export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen, onClose }) => {
+export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
+  transaction,
+  isOpen,
+  onClose,
+}) => {
   const { 
     currentUser, 
     partner, 
     categories, 
     currency, 
-    addTransaction 
+    updateTransaction,
+    deleteTransaction
   } = useFinance();
 
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
-  const [selectedCatId, setSelectedCatId] = useState(
-    type === 'expense' ? 'cat-food' : 'cat-salary'
-  );
+  const [selectedCatId, setSelectedCatId] = useState('cat-food');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('None');
-  const [paidByUserId, setPaidByUserId] = useState(currentUser?.id ?? '');
+  const [paidByUserId, setPaidByUserId] = useState('');
   const [isShared, setIsShared] = useState(true);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState('');
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
-  if (!isOpen || !currentUser) return null;
+  useEffect(() => {
+    if (transaction) {
+      setType(transaction.type);
+      setTitle(transaction.title);
+      setAmount(transaction.amount.toString());
+      setSelectedCatId(transaction.categoryId);
+      setPaymentMethod(transaction.paymentMethod || 'None');
+      setPaidByUserId(transaction.userId);
+      setIsShared(transaction.isShared);
+      setDate(transaction.date);
+      setShowConfirmDelete(false);
+    }
+  }, [transaction]);
+
+  if (!isOpen || !transaction || !currentUser) return null;
 
   const currentCategories = categories.filter(
     c => c.type === 'both' || c.type === type
@@ -58,11 +78,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
     || currentCategories[0] 
     || categories[0];
 
-  const handleQuickAddAmount = (addValue: number) => {
-    const current = parseFloat(amount) || 0;
-    setAmount((current + addValue).toString());
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amount);
@@ -70,7 +85,8 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
 
     const paidByUser = (partner && paidByUserId === partner.id) ? partner : currentUser;
 
-    addTransaction({
+    updateTransaction({
+      ...transaction,
       title: title.trim(),
       amount: parsedAmount,
       type,
@@ -86,15 +102,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       isShared,
     });
 
-    // Reset fields & close popup immediately
-    setTitle('');
-    setAmount('');
-    setPaymentMethod('None');
+    onClose();
+  };
+
+  const handleDelete = () => {
+    deleteTransaction(transaction.id);
     onClose();
   };
 
   const currencySymbol = getCurrencySymbol(currency);
-  const quickPills = currency === 'INR' ? [100, 500, 1000, 2000, 5000] : [5, 10, 25, 50, 100];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -103,7 +119,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-white tracking-wide">
-              Add {type === 'expense' ? 'Expense' : 'Income'}
+              Edit Transaction
             </span>
           </div>
           <button
@@ -149,7 +165,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
             </button>
           </div>
 
-          {/* Amount Input with Currency Symbol */}
+          {/* Amount Input */}
           <div>
             <div className="relative flex items-center">
               <span className="absolute left-4 text-2xl font-bold text-slate-400">
@@ -162,27 +178,12 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
                 required
-                autoFocus
-                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-slate-800/80 border border-white/15 text-2xl font-black text-white focus:outline-none focus:border-rose-500 transition-all placeholder:text-slate-600"
+                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-slate-800/80 border border-white/15 text-2xl font-black text-white focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
               />
-            </div>
-
-            {/* Quick Amount Chips */}
-            <div className="flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar py-1">
-              {quickPills.map((val) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => handleQuickAddAmount(val)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700 active:scale-95 border border-white/5 whitespace-nowrap transition-all"
-                >
-                  +{currencySymbol}{val}
-                </button>
-              ))}
             </div>
           </div>
 
-          {/* Description Input (Replaced 'What was this expense for?' with 'Additional Description') */}
+          {/* Description */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
               Description
@@ -191,13 +192,13 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={type === 'expense' ? 'Additional Description' : 'Income Source / Additional Description'}
+              placeholder="Additional Description"
               required
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm focus:outline-none focus:border-rose-500 placeholder:text-slate-500 transition-all"
+              className="w-full px-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm focus:outline-none focus:border-indigo-500 placeholder:text-slate-500 transition-all"
             />
           </div>
 
-          {/* Category Dropdown (Clean, searchable, full name, single '+' sign) */}
+          {/* Category Dropdown */}
           <CategoryDropdown
             selectedCatId={selectedCatId}
             onChange={setSelectedCatId}
@@ -216,14 +217,14 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
                 onClick={() => setPaidByUserId(currentUser.id)}
                 className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${
                   paidByUserId === currentUser.id
-                    ? 'border-rose-500 bg-rose-500/15 text-white'
+                    ? 'border-indigo-500 bg-indigo-500/15 text-white'
                     : 'border-white/5 bg-slate-800/60 text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 <img
                   src={currentUser.avatarUrl}
                   alt={currentUser.name}
-                  className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-500 shrink-0"
+                  className="w-7 h-7 rounded-full object-cover ring-2 ring-indigo-500 shrink-0"
                 />
                 <div className="text-left truncate">
                   <p className="text-xs font-bold truncate">{currentUser.name} (Me)</p>
@@ -255,7 +256,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
             </div>
           </div>
 
-          {/* Payment Method (Optional) & Date */}
+          {/* Payment Method & Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -264,7 +265,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs focus:outline-none focus:border-rose-500 transition-all"
+                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-500 transition-all"
               >
                 {PAYMENT_METHODS.map((method) => (
                   <option key={method.value} value={method.value}>
@@ -280,7 +281,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs focus:outline-none focus:border-rose-500 transition-all"
+                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-500 transition-all"
               />
             </div>
           </div>
@@ -288,7 +289,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
           {/* Shared vs Personal Expense Switch */}
           <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-800/50 border border-white/5">
             <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-rose-400" />
+              <Users className="w-4 h-4 text-indigo-400" />
               <div>
                 <p className="text-xs font-semibold text-white">Shared Couple Expense</p>
                 <p className="text-[10px] text-slate-400">Included in joint monthly calculations</p>
@@ -298,18 +299,51 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
               type="checkbox"
               checked={isShared}
               onChange={(e) => setIsShared(e.target.checked)}
-              className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 focus:ring-offset-slate-900 accent-rose-500 cursor-pointer"
+              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 accent-indigo-500 cursor-pointer"
             />
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            className="w-full py-3 rounded-2xl bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2"
-          >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
-            <span>Record {type === 'expense' ? 'Expense' : 'Income'}</span>
-          </button>
+          {/* Actions */}
+          <div className="pt-2 flex items-center gap-2.5">
+            {showConfirmDelete ? (
+              <div className="flex items-center gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Confirm Delete</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmDelete(false)}
+                  className="px-3 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmDelete(true)}
+                  className="p-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all"
+                  title="Delete Transaction"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2"
+                >
+                  <Check className="w-5 h-5 stroke-[2.5]" />
+                  <span>Save Changes</span>
+                </button>
+              </>
+            )}
+          </div>
         </form>
       </div>
     </div>

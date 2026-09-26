@@ -18,7 +18,15 @@ export interface CoupleVault {
   partner2?: UserProfile;
   currency: CurrencyCode;
   monthlyBudget: number;
+  myBudget?: number;
+  partnerBudget?: number;
   createdAt: string;
+}
+
+export interface BudgetsConfig {
+  couple: number;
+  me: number;
+  partner: number;
 }
 
 export interface Category {
@@ -35,9 +43,10 @@ export type PaymentMethod =
   | 'Cash' 
   | 'Bank Transfer' 
   | 'UPI / Pix' 
-  | 'Debit Card'
-  | 'Crypto'
-  | 'Other';
+  | 'Debit Card' 
+  | 'Crypto' 
+  | 'Other'
+  | 'None';
 
 export interface Transaction {
   id: string;
@@ -48,7 +57,7 @@ export interface Transaction {
   categoryName: string;
   categoryColor: string;
   categoryIcon: string;
-  paymentMethod: PaymentMethod;
+  paymentMethod?: PaymentMethod;
   date: string;
   userId: string;
   userName: string;

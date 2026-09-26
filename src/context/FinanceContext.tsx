@@ -7,7 +7,8 @@ import {
   StockInvestment, 
   BillItem, 
   Category, 
-  CurrencyCode 
+  CurrencyCode,
+  BudgetsConfig 
 } from '../types/finance';
 import { CloudStore } from '../services/cloudSync';
 import {
@@ -19,6 +20,7 @@ import {
   subscribeToVaultState,
 } from '../services/supabaseFinance';
 import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient';
+import { Toast, ToastMessage } from '../components/common/Toast';
 
 interface FinanceContextType {
   currentUser: UserProfile | null;
@@ -38,6 +40,21 @@ interface FinanceContextType {
   isBackendConfigured: boolean;
   authError: string;
 
+  // Toast notifications
+  toast: ToastMessage | null;
+  showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
+  dismissToast: () => void;
+
+  // Month navigation
+  selectedMonth: string;
+  setSelectedMonth: (month: string) => void;
+  goToPreviousMonth: () => void;
+  goToNextMonth: () => void;
+
+  // Budgets (default 0)
+  budgets: BudgetsConfig;
+  updateBudgets: (newBudgets: BudgetsConfig) => void;
+
   // Auth
   completeOnboarding: (user: UserProfile, vault: CoupleVault) => Promise<void>;
   signOut: () => void;
@@ -52,10 +69,11 @@ interface FinanceContextType {
 
   // Transaction Actions
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  updateTransaction: (tx: Transaction) => void;
   deleteTransaction: (id: string) => void;
 
   // Category Actions
-  addCategory: (cat: Omit<Category, 'id'>) => void;
+  addCategory: (cat: Omit<Category, 'id'>) => string;
 
   // Goal Actions
   addGoal: (goal: Omit<FinanceGoal, 'id' | 'currentAmount' | 'contributions'>) => void;
@@ -70,6 +88,9 @@ interface FinanceContextType {
   addBill: (bill: Omit<BillItem, 'id' | 'isPaid'>) => void;
   markBillAsPaid: (billId: string) => void;
   deleteBill: (id: string) => void;
+
+  // Sync
+  refreshSync: () => Promise<void>;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -81,6 +102,7 @@ const emptySnapshot = (): FinanceSnapshot => ({
   bills: [],
   categories: CloudStore.getCategories(),
   currency: 'INR',
+  budgets: { couple: 0, me: 0, partner: 0 },
 });
 
 const createRecordId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -101,6 +123,41 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authError, setAuthError] = useState('');
 
+  // Budgets state (defaults to 0)
+  const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
+
+  // Global month/year filter (defaults to current month: YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => 
+    new Date().toISOString().slice(0, 7)
+  );
+
+  // Global Toast notification state
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ id: `${Date.now()}-${Math.random()}`, message, type });
+  }, []);
+
+  const dismissToast = useCallback(() => {
+    setToast(null);
+  }, []);
+
+  const goToPreviousMonth = useCallback(() => {
+    setSelectedMonth(prev => {
+      const [year, month] = prev.split('-').map(Number);
+      const prevDate = new Date(year, month - 2, 1);
+      return `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    });
+  }, []);
+
+  const goToNextMonth = useCallback(() => {
+    setSelectedMonth(prev => {
+      const [year, month] = prev.split('-').map(Number);
+      const nextDate = new Date(year, month, 1);
+      return `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+    });
+  }, []);
+
   // Determine partner profile
   const partner = useMemo<UserProfile | undefined>(() => {
     if (!vault || !currentUser) return undefined;
@@ -115,18 +172,26 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const applyWorkspaceSnapshot = useCallback((snapshot: FinanceSnapshot) => {
-    setTransactions(snapshot.transactions);
-    setGoals(snapshot.goals);
-    setStocks(snapshot.stocks);
-    setBills(snapshot.bills);
-    setCategories(snapshot.categories);
-    setCurrencyState(snapshot.currency);
-    CloudStore.saveTransactions(snapshot.transactions);
-    CloudStore.saveGoals(snapshot.goals);
-    CloudStore.saveStocks(snapshot.stocks);
-    CloudStore.saveBills(snapshot.bills);
-    CloudStore.saveCategories(snapshot.categories);
-    CloudStore.saveCurrency(snapshot.currency);
+    const sortedTxs = [...(snapshot.transactions || [])].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
+    );
+    setTransactions(sortedTxs);
+    setGoals(snapshot.goals || []);
+    setStocks(snapshot.stocks || []);
+    setBills(snapshot.bills || []);
+    setCategories(snapshot.categories || CloudStore.getCategories());
+    setCurrencyState(snapshot.currency || 'INR');
+    
+    const loadedBudgets = snapshot.budgets || CloudStore.getBudgets();
+    setBudgets(loadedBudgets);
+    CloudStore.saveBudgets(loadedBudgets);
+
+    CloudStore.saveTransactions(sortedTxs);
+    CloudStore.saveGoals(snapshot.goals || []);
+    CloudStore.saveStocks(snapshot.stocks || []);
+    CloudStore.saveBills(snapshot.bills || []);
+    CloudStore.saveCategories(snapshot.categories || CloudStore.getCategories());
+    CloudStore.saveCurrency(snapshot.currency || 'INR');
   }, []);
 
   const pushToCloud = useCallback(async (overrides?: Partial<FinanceSnapshot>) => {
@@ -138,6 +203,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       bills: overrides?.bills ?? bills,
       categories: overrides?.categories ?? categories,
       currency: overrides?.currency ?? currency,
+      budgets: overrides?.budgets ?? budgets,
     };
     try {
       await saveFinanceSnapshot(vault.id, snapshot);
@@ -145,7 +211,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Could not sync finance data.');
     }
-  }, [vault, transactions, goals, stocks, bills, categories, currency]);
+  }, [vault, transactions, goals, stocks, bills, categories, currency, budgets]);
 
   // Pull the authenticated user's current workspace and partner profile.
   const pullFromCloud = useCallback(async () => {
@@ -241,6 +307,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (type === 'categories_updated')   setCategories(payload as Category[]);
       if (type === 'vault_updated')        setVault(payload as CoupleVault);
       if (type === 'currency_updated')     setCurrencyState(payload as CurrencyCode);
+      if (type === 'budgets_updated')      setBudgets(payload as BudgetsConfig);
     });
     return unsubscribe;
   }, [triggerSyncFlash]);
@@ -299,6 +366,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       CloudStore.saveVault(updatedVault);
     }
     triggerSyncFlash();
+    showToast('Profile updated successfully', 'success');
   };
 
   const handleSignOut = () => {
@@ -307,14 +375,51 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   };
 
+  /* ─── Budgets ─────────────────────────────────────────────────────────── */
+  const updateBudgets = useCallback((newBudgets: BudgetsConfig) => {
+    setBudgets(newBudgets);
+    CloudStore.saveBudgets(newBudgets);
+    if (vault) {
+      const updatedVault: CoupleVault = {
+        ...vault,
+        monthlyBudget: newBudgets.couple,
+        myBudget: newBudgets.me,
+        partnerBudget: newBudgets.partner,
+      };
+      setVault(updatedVault);
+      CloudStore.saveVault(updatedVault);
+    }
+    triggerSyncFlash();
+    pushToCloud({ budgets: newBudgets });
+    showToast('Monthly budgets saved successfully', 'success');
+  }, [vault, triggerSyncFlash, pushToCloud, showToast]);
+
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = { ...tx, id: createRecordId('tx'), createdAt: new Date().toISOString() };
-    const updated = [newTx, ...transactions];
+    const newTx: Transaction = { 
+      ...tx, 
+      id: createRecordId('tx'), 
+      createdAt: new Date().toISOString() 
+    };
+    const updated = [newTx, ...transactions].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
+    );
     setTransactions(updated);
     CloudStore.saveTransactions(updated);
     triggerSyncFlash();
     pushToCloud({ transactions: updated });
+    showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+  };
+
+  const updateTransaction = (updatedTx: Transaction) => {
+    const updated = transactions
+      .map(t => t.id === updatedTx.id ? updatedTx : t)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+    setTransactions(updated);
+    CloudStore.saveTransactions(updated);
+    triggerSyncFlash();
+    pushToCloud({ transactions: updated });
+    showToast('Transaction updated successfully', 'success');
   };
 
   const deleteTransaction = (id: string) => {
@@ -323,16 +428,19 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveTransactions(updated);
     triggerSyncFlash();
     pushToCloud({ transactions: updated });
+    showToast('Transaction removed', 'info');
   };
 
   /* ─── Categories ──────────────────────────────────────────────────────── */
-  const addCategory = (cat: Omit<Category, 'id'>) => {
+  const addCategory = (cat: Omit<Category, 'id'>): string => {
     const newCat: Category = { ...cat, id: createRecordId('cat') };
     const updated = [...categories, newCat];
     setCategories(updated);
     CloudStore.saveCategories(updated);
     triggerSyncFlash();
     pushToCloud({ categories: updated });
+    showToast('Category created successfully', 'success');
+    return newCat.id;
   };
 
   /* ─── Goals ───────────────────────────────────────────────────────────── */
@@ -343,6 +451,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveGoals(updated);
     triggerSyncFlash();
     pushToCloud({ goals: updated });
+    showToast('Finance goal created successfully', 'success');
   };
 
   const contributeToGoal = (goalId: string, amount: number, note?: string) => {
@@ -373,13 +482,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true, notes: note || 'Contribution towards couple goal',
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions];
+    const updatedTransactions = [transaction, ...transactions].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
+    );
     setGoals(updatedGoals);
     CloudStore.saveGoals(updatedGoals);
     setTransactions(updatedTransactions);
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     pushToCloud({ goals: updatedGoals, transactions: updatedTransactions });
+    showToast('Goal contribution recorded', 'success');
   };
 
   const deleteGoal = (id: string) => {
@@ -388,6 +500,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveGoals(updated);
     triggerSyncFlash();
     pushToCloud({ goals: updated });
+    showToast('Goal removed', 'info');
   };
 
   /* ─── Stocks ──────────────────────────────────────────────────────────── */
@@ -407,13 +520,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       notes: newStock.notes || `Stock investment by ${newStock.userName}`,
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions];
+    const updatedTransactions = [transaction, ...transactions].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
+    );
     setStocks(updatedStocks);
     CloudStore.saveStocks(updatedStocks);
     setTransactions(updatedTransactions);
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     pushToCloud({ stocks: updatedStocks, transactions: updatedTransactions });
+    showToast('Stock investment recorded', 'success');
   };
 
   const deleteStock = (id: string) => {
@@ -422,6 +538,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveStocks(updated);
     triggerSyncFlash();
     pushToCloud({ stocks: updated });
+    showToast('Stock investment removed', 'info');
   };
 
   /* ─── Bills ───────────────────────────────────────────────────────────── */
@@ -432,6 +549,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveBills(updated);
     triggerSyncFlash();
     pushToCloud({ bills: updated });
+    showToast('Bill added successfully', 'success');
   };
 
   const markBillAsPaid = (billId: string) => {
@@ -454,13 +572,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true, notes: `Paid on ${new Date().toLocaleDateString()}`,
       createdAt: new Date().toISOString(),
     };
-    const updatedTransactions = [transaction, ...transactions];
+    const updatedTransactions = [transaction, ...transactions].sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
+    );
     setBills(updatedBills);
     CloudStore.saveBills(updatedBills);
     setTransactions(updatedTransactions);
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    showToast('Bill marked as paid', 'success');
   };
 
   const deleteBill = (id: string) => {
@@ -469,6 +590,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveBills(updated);
     triggerSyncFlash();
     pushToCloud({ bills: updated });
+    showToast('Bill removed', 'info');
   };
 
   return (
@@ -480,17 +602,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         isAuthLoading,
         isBackendConfigured: isSupabaseConfigured,
         authError,
+        toast, showToast, dismissToast,
+        selectedMonth, setSelectedMonth, goToPreviousMonth, goToNextMonth,
+        budgets, updateBudgets,
         completeOnboarding,
         signOut: handleSignOut,
         setActiveTab, setViewMode, setCurrency,
         updateCurrentUserProfile,
-        addTransaction, deleteTransaction,
+        addTransaction, updateTransaction, deleteTransaction,
         addCategory,
         addGoal, contributeToGoal, deleteGoal,
         addStock, deleteStock,
         addBill, markBillAsPaid, deleteBill,
+        refreshSync: pullFromCloud,
       }}
     >
+      <Toast toast={toast} onDismiss={dismissToast} />
       {children}
     </FinanceContext.Provider>
   );

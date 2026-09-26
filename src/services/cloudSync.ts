@@ -6,7 +6,8 @@ import {
   StockInvestment, 
   BillItem, 
   Category,
-  CurrencyCode 
+  CurrencyCode,
+  BudgetsConfig 
 } from '../types/finance';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 
@@ -22,6 +23,7 @@ const KEYS = {
   BILLS:         `${STORAGE_PREFIX}_bills`,
   CURRENCY:      `${STORAGE_PREFIX}_currency`,
   ONBOARDED:     `${STORAGE_PREFIX}_onboarded`,
+  BUDGETS:       `${STORAGE_PREFIX}_budgets`,
 };
 
 const syncChannel =
@@ -132,6 +134,20 @@ export const CloudStore = {
   saveCurrency(c: CurrencyCode) {
     localStorage.setItem(KEYS.CURRENCY, c);
     CloudStore.broadcast('currency_updated', c);
+  },
+
+  /* ── Budgets (Defaults to 0 for all) ──────────────────────────────── */
+  getBudgets(): BudgetsConfig {
+    try {
+      const d = localStorage.getItem(KEYS.BUDGETS);
+      return d ? JSON.parse(d) : { couple: 0, me: 0, partner: 0 };
+    } catch {
+      return { couple: 0, me: 0, partner: 0 };
+    }
+  },
+  saveBudgets(budgets: BudgetsConfig) {
+    localStorage.setItem(KEYS.BUDGETS, JSON.stringify(budgets));
+    CloudStore.broadcast('budgets_updated', budgets);
   },
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
