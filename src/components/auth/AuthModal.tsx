@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { X, Camera, Link2, Heart, ShieldCheck, LogOut } from 'lucide-react';
+import { X, Camera, Link2, Heart, ShieldCheck, LogOut, User } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;

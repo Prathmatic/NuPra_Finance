@@ -51,7 +51,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Filter transactions based on viewMode ('both' | 'me' | 'partner')
   const filteredTxs = useMemo(() => {
     return transactions.filter(tx => {
-      if (viewMode === 'me') return tx.userId === currentUser!.id;
+      if (viewMode === 'me') return currentUser ? tx.userId === currentUser.id : true;
       if (viewMode === 'partner' && partner) return tx.userId === partner.id;
       return true; // 'both'
     });
@@ -79,7 +79,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           income += t.amount;
         } else {
           expense += t.amount;
-          if (t.userId === currentUser!.id) {
+          if (currentUser && t.userId === currentUser.id) {
             myExp += t.amount;
           } else {
             partnerExp += t.amount;
@@ -286,8 +286,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="p-3 rounded-2xl bg-slate-900/50 border border-white/5 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
-                <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-4 h-4 rounded-full object-cover ring-1 ring-emerald-500 shrink-0" />
-                <span className="font-bold text-white text-[11px] truncate">{currentUser.name} (Me)</span>
+                <img src={currentUser?.avatarUrl || ''} alt={currentUser?.name || 'User'} className="w-4 h-4 rounded-full object-cover ring-1 ring-emerald-500 shrink-0" />
+                <span className="font-bold text-white text-[11px] truncate">{currentUser?.name || 'Me'} (Me)</span>
               </div>
               <span className="font-semibold text-[11px] text-slate-300">
                 {myLimit > 0 ? `${formatCurrency(myExpense, currency)} / ${formatCurrency(myLimit, currency)}` : `${formatCurrency(myExpense, currency)} spent`}

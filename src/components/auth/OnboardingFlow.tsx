@@ -180,15 +180,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
           }
         }
 
-        setProfile(workspace.currentUser || {
-          id: authUser.id,
-          name: workspace.currentUser?.name || authUser.user_metadata?.display_name || name.trim() || 'User',
-          email: authUser.email!.toLowerCase(),
-          avatarUrl: workspace.currentUser?.avatarUrl || AVATAR_PRESETS[0],
-          partnerCode: '',
-          vaultId: '',
-          createdAt: new Date().toISOString(),
-        });
+        if (workspace.currentUser) {
+          setProfile(workspace.currentUser);
+        } else {
+          setProfile({
+            id: authUser.id,
+            name: authUser.user_metadata?.display_name || name.trim() || 'User',
+            email: authUser.email!.toLowerCase(),
+            avatarUrl: authUser.user_metadata?.avatar_url || AVATAR_PRESETS[0],
+            partnerCode: '',
+            vaultId: '',
+            createdAt: new Date().toISOString(),
+          });
+        }
         setStep('accept');
         setNotice('Found an invitation from your partner! Tap below to join.');
         return;
@@ -196,20 +200,21 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
 
       // If user profile is already saved in Supabase
       if (workspace.currentUser && workspace.currentUser.name) {
-        setProfile(workspace.currentUser);
-        setName(workspace.currentUser.name);
-        setAvatarUrl(workspace.currentUser.avatarUrl || AVATAR_PRESETS[0]);
+        const existingUser = workspace.currentUser;
+        setProfile(existingUser);
+        setName(existingUser.name);
+        setAvatarUrl(existingUser.avatarUrl || AVATAR_PRESETS[0]);
 
         // If partner email was provided on Existing User screen, auto-create vault & invite partner directly!
         if (partnerEmail.trim()) {
           try {
-            const activeVaultId = await createCoupleVault(`${workspace.currentUser.name} & Partner`, 'INR', 0);
+            const activeVaultId = await createCoupleVault(`${existingUser.name} & Partner`, 'INR', 0);
             await invitePartner(activeVaultId, partnerEmail.trim());
-            const owner = { ...workspace.currentUser, vaultId: activeVaultId };
+            const owner = { ...existingUser, vaultId: activeVaultId };
             await onComplete(owner, {
               id: activeVaultId,
               inviteCode: '',
-              name: `${workspace.currentUser.name} & Partner`,
+              name: `${existingUser.name} & Partner`,
               partner1: owner,
               currency: 'INR',
               monthlyBudget: 0,
