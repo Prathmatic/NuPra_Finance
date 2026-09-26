@@ -447,6 +447,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         currentUserRef.current = workspace.currentUser;
         setVault(workspace.vault);
         vaultRef.current = workspace.vault;
+        if (workspace.currentUser) CloudStore.saveCurrentUser(workspace.currentUser);
+        if (workspace.vault) CloudStore.saveVault(workspace.vault);
         if (workspace.snapshot) applyWorkspaceSnapshot(workspace.snapshot);
         else applyWorkspaceSnapshot(emptySnapshot());
         setIsOnboarded(Boolean(workspace.currentUser && workspace.vault && workspace.partner));

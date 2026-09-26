@@ -12,6 +12,7 @@ import type {
 } from '../types/finance';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { getSupabase } from './supabaseClient';
+import { compressAvatarImage } from '../utils/imageCompressor';
 
 export interface FinanceSnapshot {
   transactions: Transaction[];
@@ -51,15 +52,29 @@ const emptySnapshot = (): FinanceSnapshot => ({
   budgets: { couple: 0, me: 0, partner: 0 },
 });
 
-const toProfile = (row: any, vaultId = ''): UserProfile => ({
-  id: row.id,
-  name: row.display_name,
-  email: row.email,
-  avatarUrl: row.avatar_url || '',
-  partnerCode: '',
-  vaultId,
-  createdAt: row.created_at,
-});
+const toProfile = (row: any, vaultId = ''): UserProfile => {
+  const avatarUrl = row.avatar_url || '';
+  // If legacy profile in Supabase contains an uncompressed massive base64 (> 25KB),
+  // schedule an asynchronous compression so the DB is permanently fixed without blocking UI.
+  if (avatarUrl.startsWith('data:') && avatarUrl.length > 25000) {
+    void compressAvatarImage(avatarUrl, 128, 0.75).then(async (compressed) => {
+      if (compressed && compressed.length < avatarUrl.length) {
+        try {
+          await getSupabase().from('profiles').update({ avatar_url: compressed }).eq('id', row.id);
+        } catch {}
+      }
+    });
+  }
+  return {
+    id: row.id,
+    name: row.display_name,
+    email: row.email,
+    avatarUrl,
+    partnerCode: '',
+    vaultId,
+    createdAt: row.created_at,
+  };
+};
 
 export async function requestEmailCode(email: string): Promise<void> {
   const { error } = await getSupabase().auth.signInWithOtp({
@@ -120,11 +135,19 @@ export async function signOut(): Promise<void> {
 export async function saveProfile(profile: UserProfile): Promise<void> {
   const user = await getSignedInUser();
   if (!user || user.id !== profile.id) throw new Error('Your Supabase session has expired. Sign in again.');
+
+  let avatarToSave = profile.avatarUrl;
+  if (avatarToSave && avatarToSave.startsWith('data:') && avatarToSave.length > 25000) {
+    try {
+      avatarToSave = await compressAvatarImage(avatarToSave, 128, 0.75);
+    } catch {}
+  }
+
   const { error } = await getSupabase().from('profiles').upsert({
     id: profile.id,
     email: profile.email.trim().toLowerCase(),
     display_name: profile.name.trim(),
-    avatar_url: profile.avatarUrl,
+    avatar_url: avatarToSave,
   });
   if (error) throw error;
   await loadWorkspace();
@@ -297,10 +320,38 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
         }
       } catch {}
     }
+    const rawTxs = (stateRow.transactions as Transaction[]) || [];
+    let hadBloat = false;
+    const cleanTxs = rawTxs.map(tx => {
+      if (tx?.userAvatar && (tx.userAvatar.startsWith('data:') || tx.userAvatar.length > 500)) {
+        hadBloat = true;
+        const { userAvatar, ...rest } = tx;
+        return rest as Transaction;
+      }
+      return tx;
+    });
+
+    const rawStocks = (stateRow.stocks as StockInvestment[]) || [];
+    const cleanStocks = rawStocks.map(stock => {
+      if (stock?.userAvatar && (stock.userAvatar.startsWith('data:') || stock.userAvatar.length > 500)) {
+        hadBloat = true;
+        const { userAvatar, ...rest } = stock;
+        return rest as StockInvestment;
+      }
+      return stock;
+    });
+
+    if (hadBloat) {
+      void getSupabase()
+        .from('vault_finance_state')
+        .update({ transactions: cleanTxs, stocks: cleanStocks })
+        .eq('vault_id', vaultId);
+    }
+
     snapshot = {
-      transactions: (stateRow.transactions as Transaction[]) || [],
+      transactions: cleanTxs,
       goals: (stateRow.goals as FinanceGoal[]) || [],
-      stocks: (stateRow.stocks as StockInvestment[]) || [],
+      stocks: cleanStocks,
       bills: (stateRow.bills as BillItem[]) || [],
       categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
       currency: (stateRow.currency as CurrencyCode) || 'INR',
@@ -333,11 +384,27 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
     },
   ];
 
+  const cleanTxs = (snapshot.transactions || []).map(tx => {
+    if (tx?.userAvatar && (tx.userAvatar.startsWith('data:') || tx.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = tx;
+      return rest as Transaction;
+    }
+    return tx;
+  });
+
+  const cleanStocks = (snapshot.stocks || []).map(stock => {
+    if (stock?.userAvatar && (stock.userAvatar.startsWith('data:') || stock.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = stock;
+      return rest as StockInvestment;
+    }
+    return stock;
+  });
+
   const { error } = await getSupabase().from('vault_finance_state').upsert({
     vault_id: vaultId,
-    transactions: snapshot.transactions || [],
+    transactions: cleanTxs,
     goals: snapshot.goals || [],
-    stocks: snapshot.stocks || [],
+    stocks: cleanStocks,
     bills: snapshot.bills || [],
     categories: categoriesToPersist,
     currency: snapshot.currency || 'INR',
@@ -387,10 +454,28 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     } catch {}
   }
 
+  const rawTxs = (data.transactions as Transaction[]) || [];
+  const cleanTxs = rawTxs.map(tx => {
+    if (tx?.userAvatar && (tx.userAvatar.startsWith('data:') || tx.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = tx;
+      return rest as Transaction;
+    }
+    return tx;
+  });
+
+  const rawStocks = (data.stocks as StockInvestment[]) || [];
+  const cleanStocks = rawStocks.map(stock => {
+    if (stock?.userAvatar && (stock.userAvatar.startsWith('data:') || stock.userAvatar.length > 500)) {
+      const { userAvatar, ...rest } = stock;
+      return rest as StockInvestment;
+    }
+    return stock;
+  });
+
   return {
-    transactions: (data.transactions as Transaction[]) || [],
+    transactions: cleanTxs,
     goals: (data.goals as FinanceGoal[]) || [],
-    stocks: (data.stocks as StockInvestment[]) || [],
+    stocks: cleanStocks,
     bills: (data.bills as BillItem[]) || [],
     categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
     currency: (data.currency as CurrencyCode) || 'INR',

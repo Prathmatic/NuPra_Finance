@@ -32,34 +32,6 @@ const syncChannel =
     : null;
 
 /**
- * Removes deprecated prototype keys and stale caches from previous app versions
- * to free up browser / WebView localStorage quota (which is strictly capped at 5MB).
- */
-export function clearStaleStorage(): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    const activeKeys = new Set(Object.values(KEYS));
-    const toRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && !activeKeys.has(key)) {
-        if (key.startsWith('nupra_') || key.startsWith('couple_')) {
-          toRemove.push(key);
-        }
-      }
-    }
-    toRemove.forEach(k => {
-      try { localStorage.removeItem(k); } catch {}
-    });
-  } catch (err) {
-    console.warn('[CloudStore] Could not clear stale storage:', err);
-  }
-}
-
-// Automatically prune stale keys on load
-clearStaleStorage();
-
-/**
  * Strips huge base64 data URLs from individual transaction records.
  * Avatars are dynamically resolved from the user / partner profile,
  * so duplicating multi-megabyte base64 strings across dozens of transactions
@@ -84,6 +56,86 @@ function sanitizeStock(stock: StockInvestment): StockInvestment {
 }
 
 /**
+ * Strips uncompressed multi-megabyte base64 strings from user profiles for localStorage.
+ * Small avatars (< 25KB) are kept. Memory and Supabase retain full profiles.
+ */
+function sanitizeUserForStorage(user: UserProfile | null): UserProfile | null {
+  if (!user) return null;
+  if (user.avatarUrl && user.avatarUrl.startsWith('data:') && user.avatarUrl.length > 25000) {
+    const { avatarUrl, ...rest } = user;
+    return { ...rest, avatarUrl: '' };
+  }
+  return user;
+}
+
+function sanitizeVaultForStorage(vault: CoupleVault | null): CoupleVault | null {
+  if (!vault) return null;
+  return {
+    ...vault,
+    partner1: vault.partner1 ? sanitizeUserForStorage(vault.partner1)! : vault.partner1,
+    partner2: vault.partner2 ? sanitizeUserForStorage(vault.partner2)! : vault.partner2,
+  };
+}
+
+/**
+ * Removes deprecated prototype keys and stale caches from previous app versions,
+ * and purges legacy uncompressed base64 data URLs from existing localStorage entries.
+ */
+export function pruneBloatedStorage(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const activeKeys = new Set(Object.values(KEYS));
+
+    // 1. Evict any old version keys
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && !activeKeys.has(key)) {
+        if (key.startsWith('nupra_') || key.startsWith('couple_')) {
+          try { localStorage.removeItem(key); } catch {}
+        }
+      }
+    }
+
+    // 2. Sanitize any active keys that are bloated (> 25KB)
+    for (const key of activeKeys) {
+      try {
+        const val = localStorage.getItem(key);
+        if (!val || val.length < 25000) continue;
+
+        if (key === KEYS.TRANSACTIONS) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) {
+            const sanitized = parsed.map(sanitizeTransaction);
+            localStorage.setItem(key, JSON.stringify(sanitized));
+          }
+        } else if (key === KEYS.CURRENT_USER) {
+          const parsed = JSON.parse(val);
+          const sanitized = sanitizeUserForStorage(parsed);
+          localStorage.setItem(key, JSON.stringify(sanitized));
+        } else if (key === KEYS.VAULT) {
+          const parsed = JSON.parse(val);
+          const sanitized = sanitizeVaultForStorage(parsed);
+          localStorage.setItem(key, JSON.stringify(sanitized));
+        } else if (key === KEYS.STOCKS) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) {
+            const sanitized = parsed.map(sanitizeStock);
+            localStorage.setItem(key, JSON.stringify(sanitized));
+          }
+        }
+      } catch (err) {
+        console.warn(`[CloudStore] Could not prune key ${key}:`, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[CloudStore] Could not prune bloated storage:', err);
+  }
+}
+
+// Automatically prune stale and bloated keys on load
+pruneBloatedStorage();
+
+/**
  * Safe wrapper around localStorage.setItem that protects against QuotaExceededError.
  * In case of quota errors, it runs an emergency prune of stale keys and trims transaction
  * cache length to keep the application responsive and crash-free.
@@ -94,26 +146,25 @@ function safeSetItem(key: string, value: string): boolean {
     return true;
   } catch (err) {
     console.warn(`[CloudStore] LocalStorage setItem failed on "${key}":`, err);
-    clearStaleStorage();
+    pruneBloatedStorage();
     try {
       localStorage.setItem(key, value);
       return true;
     } catch {
-      // If transactions caused the quota limit, trim to the latest 100 items for local cache
+      // If transactions caused the quota limit, trim to the latest 50 items for local cache
       if (key === KEYS.TRANSACTIONS) {
         try {
           const parsed = JSON.parse(value);
           if (Array.isArray(parsed)) {
-            const trimmed = parsed.slice(0, 80).map(sanitizeTransaction);
+            const trimmed = parsed.slice(0, 50).map(sanitizeTransaction);
             localStorage.setItem(key, JSON.stringify(trimmed));
             return true;
           }
         } catch {
-          // If still failing, trim to latest 25 items
           try {
             const parsed = JSON.parse(value);
             if (Array.isArray(parsed)) {
-              localStorage.setItem(key, JSON.stringify(parsed.slice(0, 25).map(sanitizeTransaction)));
+              localStorage.setItem(key, JSON.stringify(parsed.slice(0, 15).map(sanitizeTransaction)));
               return true;
             }
           } catch {
@@ -145,7 +196,8 @@ export const CloudStore = {
     } catch { return null; }
   },
   saveCurrentUser(user: UserProfile) {
-    safeSetItem(KEYS.CURRENT_USER, JSON.stringify(user));
+    const sanitized = sanitizeUserForStorage(user);
+    safeSetItem(KEYS.CURRENT_USER, JSON.stringify(sanitized));
     CloudStore.broadcast('user_updated', user);
   },
 
@@ -157,7 +209,8 @@ export const CloudStore = {
     } catch { return null; }
   },
   saveVault(vault: CoupleVault) {
-    safeSetItem(KEYS.VAULT, JSON.stringify(vault));
+    const sanitized = sanitizeVaultForStorage(vault);
+    safeSetItem(KEYS.VAULT, JSON.stringify(sanitized));
     CloudStore.broadcast('vault_updated', vault);
   },
 
