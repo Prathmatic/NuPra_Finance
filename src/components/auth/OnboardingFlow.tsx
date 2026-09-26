@@ -32,7 +32,17 @@ const AVATAR_PRESETS = [
   'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
 ];
 
-const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null) {
+    const err = error as Record<string, unknown>;
+    if (typeof err.message === 'string') return err.message;
+    if (typeof err.error_description === 'string') return err.error_description;
+    if (typeof err.msg === 'string') return err.msg;
+    if (typeof err.details === 'string') return err.details;
+  }
+  return String(error || 'Something went wrong. Please try again.');
+};
 
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, initialProfile, authError }) => {
   const initialProfileId = initialProfile?.id;
