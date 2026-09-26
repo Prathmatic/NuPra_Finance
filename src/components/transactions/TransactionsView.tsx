@@ -41,6 +41,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
 
+  const getTxAvatar = (tx: Transaction) => {
+    return tx.userAvatar || (tx.userId === currentUser?.id ? currentUser?.avatarUrl : partner?.avatarUrl);
+  };
+
   // Filter logic
   const filteredList = useMemo(() => {
     return transactions.filter(t => {
@@ -306,8 +310,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                     {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
                   </p>
                   <div className="flex items-center justify-end gap-1 mt-0.5">
-                    {tx.userAvatar && (
-                      <img src={tx.userAvatar} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
+                    {getTxAvatar(tx) && (
+                      <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
                     )}
                     <span className="text-[10px] text-slate-400">{tx.userName}</span>
                   </div>

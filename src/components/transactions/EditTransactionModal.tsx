@@ -99,7 +99,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       date: date || transaction.date,
       userId: paidByUser.id,
       userName: paidByUser.name,
-      userAvatar: paidByUser.avatarUrl,
+      userAvatar: paidByUser.avatarUrl?.startsWith('data:') ? undefined : paidByUser.avatarUrl,
       isShared,
     });
 

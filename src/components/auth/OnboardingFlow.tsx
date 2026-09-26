@@ -18,6 +18,7 @@ import {
 } from '../../services/supabaseFinance';
 import { isSupabaseConfigured } from '../../services/supabaseClient';
 import { NPIcon } from '../common/NPIcon';
+import { compressAvatarImage } from '../../utils/imageCompressor';
 
 interface OnboardingFlowProps {
   onComplete: (user: UserProfile, vault: CoupleVault) => Promise<void> | void;
@@ -248,18 +249,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete, init
     }
   };
 
-  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 2_000_000) {
-      setError('Choose a photo smaller than 2 MB.');
-      return;
+    try {
+      setLoading(true);
+      setError('');
+      const compressed = await compressAvatarImage(file, 128, 0.75);
+      if (compressed) setAvatarUrl(compressed);
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError));
+    } finally {
+      setLoading(false);
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setAvatarUrl(reader.result);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleSaveProfile = async () => {

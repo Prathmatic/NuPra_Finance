@@ -47,7 +47,7 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
       date,
       userId: investor.id,
       userName: investor.name,
-      userAvatar: investor.avatarUrl,
+      userAvatar: investor.avatarUrl?.startsWith('data:') ? undefined : investor.avatarUrl,
       notes: notes.trim() || undefined,
     });
 

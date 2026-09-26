@@ -103,7 +103,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       date: date || new Date().toISOString().split('T')[0],
       userId: paidByUser.id,
       userName: paidByUser.name,
-      userAvatar: paidByUser.avatarUrl,
+      userAvatar: paidByUser.avatarUrl?.startsWith('data:') ? undefined : paidByUser.avatarUrl,
       isShared,
     });
 

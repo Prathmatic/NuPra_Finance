@@ -19,6 +19,10 @@ interface StockInvestmentViewProps {
 export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpenAddStockModal }) => {
   const { stocks, currency, currentUser, partner, deleteStock } = useFinance();
 
+  const getStockAvatar = (stock: StockInvestment) => {
+    return stock.userAvatar || (stock.userId === currentUser?.id ? currentUser?.avatarUrl : partner?.avatarUrl);
+  };
+
   // Find all distinct months in stocks records
   const availableMonths = useMemo(() => {
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -248,8 +252,8 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
                       {formatCurrency(stock.investedAmount, currency)}
                     </p>
                     <div className="flex items-center justify-end gap-1 mt-0.5">
-                      {stock.userAvatar && (
-                        <img src={stock.userAvatar} alt={stock.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
+                      {getStockAvatar(stock) && (
+                        <img src={getStockAvatar(stock)} alt={stock.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
                       )}
                       <span className="text-[10px] text-slate-400">{stock.userName}</span>
                     </div>

@@ -215,10 +215,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const targetVault = vaultRef.current || CloudStore.getVault();
     if (!targetVault?.id) return;
 
+    const rawTxs = overrides?.transactions ?? transactionsRef.current ?? [];
+    const cleanTxs = rawTxs.map(t => {
+      if (t.userAvatar && (t.userAvatar.startsWith('data:') || t.userAvatar.length > 500)) {
+        const { userAvatar, ...rest } = t;
+        return rest as Transaction;
+      }
+      return t;
+    });
+
+    const rawStocks = overrides?.stocks ?? stocksRef.current ?? [];
+    const cleanStocks = rawStocks.map(s => {
+      if (s.userAvatar && (s.userAvatar.startsWith('data:') || s.userAvatar.length > 500)) {
+        const { userAvatar, ...rest } = s;
+        return rest as StockInvestment;
+      }
+      return s;
+    });
+
     const snapshotToSave: FinanceSnapshot = {
-      transactions: overrides?.transactions ?? transactionsRef.current,
+      transactions: cleanTxs,
       goals: overrides?.goals ?? goalsRef.current,
-      stocks: overrides?.stocks ?? stocksRef.current,
+      stocks: cleanStocks,
       bills: overrides?.bills ?? billsRef.current,
       categories: overrides?.categories ?? categoriesRef.current,
       currency: overrides?.currency ?? currencyRef.current,
@@ -258,8 +276,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       t => t && !remoteTxMap.has(t.id) && !deletedTxs.has(t.id)
     );
     
-    // Filter out locally deleted transactions from remote
-    const validRemoteTxs = remoteTxs.filter(t => !deletedTxs.has(t.id));
+    // Filter out locally deleted transactions from remote and strip any heavy data URLs
+    const validRemoteTxs = remoteTxs
+      .filter(t => !deletedTxs.has(t.id))
+      .map(t => {
+        if (t.userAvatar && (t.userAvatar.startsWith('data:') || t.userAvatar.length > 500)) {
+          const { userAvatar, ...rest } = t;
+          return rest as Transaction;
+        }
+        return t;
+      });
     
     // Combine both: remote takes precedence for existing, pending local are preserved
     const mergedTxs = sortTransactionsDesc([...validRemoteTxs, ...pendingLocalTxs]);
@@ -575,6 +601,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       const newTxDate = tx.date || now.split('T')[0];
       const newTx: Transaction = { 
         ...tx, 
+        userAvatar: (tx.userAvatar && !tx.userAvatar.startsWith('data:')) ? tx.userAvatar : undefined,
         id: createRecordId('tx'), 
         date: newTxDate,
         createdAt: now 
@@ -617,9 +644,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const updateTransaction = (updatedTx: Transaction) => {
     try {
+      const cleanUpdatedTx: Transaction = {
+        ...updatedTx,
+        userAvatar: (updatedTx.userAvatar && !updatedTx.userAvatar.startsWith('data:')) ? updatedTx.userAvatar : undefined,
+      };
       const safeTxs = (transactionsRef.current || []).filter(Boolean);
       const updated = sortTransactionsDesc(
-        safeTxs.map(t => t.id === updatedTx.id ? updatedTx : t)
+        safeTxs.map(t => t.id === cleanUpdatedTx.id ? cleanUpdatedTx : t)
       );
       transactionsRef.current = updated;
       setTransactions(updated);
@@ -695,7 +726,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       paymentMethod: 'Bank Transfer',
       date: new Date().toISOString().split('T')[0],
       userId: currentUser.id, userName: currentUser.name,
-      userAvatar: currentUser.avatarUrl,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
       isShared: true, notes: note || 'Contribution towards couple goal',
       createdAt: new Date().toISOString(),
     };
@@ -735,7 +766,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       paymentMethod: 'Bank Transfer',
       date: newStock.date,
       userId: newStock.userId, userName: newStock.userName,
-      userAvatar: newStock.userAvatar, isShared: true,
+      userAvatar: (newStock.userAvatar && !newStock.userAvatar.startsWith('data:')) ? newStock.userAvatar : undefined,
+      isShared: true,
       notes: newStock.notes || `Stock investment by ${newStock.userName}`,
       createdAt: new Date().toISOString(),
     };
@@ -790,7 +822,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       categoryColor: paidBill.categoryColor || '#F97316', categoryIcon: 'Zap',
       paymentMethod: 'UPI / Pix',
       date: new Date().toISOString().split('T')[0],
-      userId: currentUser.id, userName: currentUser.name, userAvatar: currentUser.avatarUrl,
+      userId: currentUser.id, userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
       isShared: true, notes: `Paid on ${new Date().toLocaleDateString()}`,
       createdAt: new Date().toISOString(),
     };
