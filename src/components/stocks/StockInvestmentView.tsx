@@ -11,6 +11,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatMonthYear } from '../../utils/formatters';
+import { StockInvestment } from '../../types/finance';
 
 interface StockInvestmentViewProps {
   onOpenAddStockModal: () => void;
