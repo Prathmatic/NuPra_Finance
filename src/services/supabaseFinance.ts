@@ -22,6 +22,7 @@ export interface FinanceSnapshot {
   categories: Category[];
   currency: CurrencyCode;
   budgets?: BudgetsConfig;
+  updatedAt?: number | string;
 }
 
 export interface UserWorkspace {
@@ -409,7 +410,9 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
     categories: categoriesToPersist,
     currency: snapshot.currency || 'INR',
     updated_by: user.id,
-    updated_at: new Date().toISOString(),
+    updated_at: typeof snapshot.updatedAt === 'number'
+      ? new Date(snapshot.updatedAt).toISOString()
+      : (typeof snapshot.updatedAt === 'string' ? snapshot.updatedAt : new Date().toISOString()),
   }, { onConflict: 'vault_id' });
 
   if (error) {
@@ -431,7 +434,7 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
 export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnapshot | null> {
   const { data, error } = await getSupabase()
     .from('vault_finance_state')
-    .select('transactions, goals, stocks, bills, categories, currency')
+    .select('transactions, goals, stocks, bills, categories, currency, updated_at')
     .eq('vault_id', vaultId)
     .maybeSingle();
   if (error) throw error;
@@ -480,23 +483,39 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
     currency: (data.currency as CurrencyCode) || 'INR',
     budgets: parsedBudgets,
+    updatedAt: (data as any).updated_at ? new Date((data as any).updated_at).getTime() : undefined,
   };
 }
 
-export function subscribeToVaultState(vaultId: string, onChange: () => void): RealtimeChannel {
+export function subscribeToVaultState(
+  vaultId: string,
+  onSnapshot: (snapshot: FinanceSnapshot, senderId?: string) => void,
+  onRemoteChange: () => void
+): RealtimeChannel {
   return getSupabase()
-    .channel(`vault-state:${vaultId}`)
+    .channel(`vault-state:${vaultId}`, {
+      config: {
+        broadcast: { self: false },
+      },
+    })
+    .on('broadcast', { event: 'instant_sync' }, (message: any) => {
+      const payload = message?.payload;
+      if (payload?.snapshot) {
+        onSnapshot(payload.snapshot, payload.senderId);
+      } else {
+        onRemoteChange();
+      }
+    })
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'vault_finance_state',
       filter: `vault_id=eq.${vaultId}`,
-    }, onChange)
+    }, onRemoteChange)
     .on('postgres_changes', {
       event: 'UPDATE',
       schema: 'public',
       table: 'profiles',
-    }, onChange)
-    .on('broadcast', { event: 'sync' }, onChange)
+    }, onRemoteChange)
     .subscribe();
 }

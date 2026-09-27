@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useMemo, useCallback } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { 
   UserProfile, 
   CoupleVault, 
@@ -139,11 +140,23 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const currentUserRef = useRef<UserProfile | null>(currentUser);
   const lastLocalWriteTimeRef = useRef<number>(0);
 
+  // Pending locally created items awaiting remote acknowledgement
+  const pendingCreatedTxIdsRef = useRef<Set<string>>(new Set());
+  const pendingCreatedGoalIdsRef = useRef<Set<string>>(new Set());
+  const pendingCreatedStockIdsRef = useRef<Set<string>>(new Set());
+  const pendingCreatedBillIdsRef = useRef<Set<string>>(new Set());
+
+  // Active Realtime Channel ref for instant WebSocket broadcasts
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+
   // Tombstones to prevent deleted items from resurrecting on snapshot sync
   const deletedTxIdsRef = useRef<Set<string>>(new Set());
   const deletedGoalIdsRef = useRef<Set<string>>(new Set());
   const deletedStockIdsRef = useRef<Set<string>>(new Set());
   const deletedBillIdsRef = useRef<Set<string>>(new Set());
+
+  // Monotonic snapshot timestamp tracker to reject out-of-order stale network polls
+  const lastAppliedSnapshotTimestampRef = useRef<number>(0);
 
   // Synchronize refs when state updates
   useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
@@ -233,6 +246,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       return s;
     });
 
+    const now = Date.now();
     const snapshotToSave: FinanceSnapshot = {
       transactions: cleanTxs,
       goals: overrides?.goals ?? goalsRef.current,
@@ -241,17 +255,29 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       categories: overrides?.categories ?? categoriesRef.current,
       currency: overrides?.currency ?? currencyRef.current,
       budgets: overrides?.budgets ?? budgetsRef.current,
+      updatedAt: now,
     };
+    lastAppliedSnapshotTimestampRef.current = now;
 
+    // 1. Instantly broadcast snapshot to partner via WebSocket (< 30ms latency)
+    try {
+      realtimeChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'instant_sync',
+        payload: {
+          snapshot: snapshotToSave,
+          senderId: currentUserRef.current?.id,
+          timestamp: now,
+        },
+      });
+    } catch (broadcastErr) {
+      console.warn('Realtime broadcast error:', broadcastErr);
+    }
+
+    // 2. Persist to Supabase database in background
     try {
       await saveFinanceSnapshot(targetVault.id, snapshotToSave);
       setAuthError('');
-      // Send a broadcast event to instantly trigger pullFromCloud on partner devices
-      getSupabase().channel(`vault-state:${targetVault.id}`).send({
-        type: 'broadcast',
-        event: 'sync',
-        payload: {}
-      });
     } catch (error) {
       console.error('Failed to sync finance snapshot to Supabase:', error);
       const msg = error instanceof Error ? error.message : 'Could not sync finance data.';
@@ -272,14 +298,33 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const applyWorkspaceSnapshot = useCallback((snapshot: FinanceSnapshot) => {
-    // 1. Transactions merge: keep remote + local pending transactions not on remote, excluding deleted
+    // Drop stale remote snapshots if a newer snapshot has already been applied locally
+    if (snapshot.updatedAt) {
+      const snapTime = typeof snapshot.updatedAt === 'number'
+        ? snapshot.updatedAt
+        : new Date(snapshot.updatedAt).getTime();
+      if (!isNaN(snapTime)) {
+        if (snapTime < lastAppliedSnapshotTimestampRef.current) {
+          return;
+        }
+        lastAppliedSnapshotTimestampRef.current = snapTime;
+      }
+    }
+
+    // 1. Transactions merge
     const remoteTxs = snapshot.transactions || [];
     const remoteTxMap = new Map<string, Transaction>(remoteTxs.map(t => [t.id, t]));
     const deletedTxs = deletedTxIdsRef.current;
+    const pendingCreatedTxs = pendingCreatedTxIdsRef.current;
     
-    // Find local transactions that aren't yet on remote and haven't been deleted
+    // Clear pending local creations that are now confirmed on remote
+    pendingCreatedTxs.forEach(id => {
+      if (remoteTxMap.has(id)) pendingCreatedTxs.delete(id);
+    });
+
+    // Only keep local creations that haven't reached remote yet and haven't been deleted
     const pendingLocalTxs = (transactionsRef.current || []).filter(
-      t => t && !remoteTxMap.has(t.id) && !deletedTxs.has(t.id)
+      t => t && pendingCreatedTxs.has(t.id) && !remoteTxMap.has(t.id) && !deletedTxs.has(t.id)
     );
     
     // Filter out locally deleted transactions from remote and strip any heavy data URLs
@@ -293,7 +338,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         return t;
       });
     
-    // Combine both: remote takes precedence for existing, pending local are preserved
     const mergedTxs = sortTransactionsDesc([...validRemoteTxs, ...pendingLocalTxs]);
 
     // Clean up deleted IDs that are now confirmed gone from remote
@@ -305,8 +349,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const remoteGoals = snapshot.goals || [];
     const remoteGoalMap = new Map<string, FinanceGoal>(remoteGoals.map(g => [g.id, g]));
     const deletedGoals = deletedGoalIdsRef.current;
+    const pendingCreatedGoals = pendingCreatedGoalIdsRef.current;
+
+    pendingCreatedGoals.forEach(id => {
+      if (remoteGoalMap.has(id)) pendingCreatedGoals.delete(id);
+    });
+
     const pendingLocalGoals = (goalsRef.current || []).filter(
-      g => g && !remoteGoalMap.has(g.id) && !deletedGoals.has(g.id)
+      g => g && pendingCreatedGoals.has(g.id) && !remoteGoalMap.has(g.id) && !deletedGoals.has(g.id)
     );
     const validRemoteGoals = remoteGoals.filter(g => !deletedGoals.has(g.id));
     const mergedGoals = [...validRemoteGoals, ...pendingLocalGoals];
@@ -318,8 +368,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const remoteStocks = snapshot.stocks || [];
     const remoteStockMap = new Map<string, StockInvestment>(remoteStocks.map(s => [s.id, s]));
     const deletedStocks = deletedStockIdsRef.current;
+    const pendingCreatedStocks = pendingCreatedStockIdsRef.current;
+
+    pendingCreatedStocks.forEach(id => {
+      if (remoteStockMap.has(id)) pendingCreatedStocks.delete(id);
+    });
+
     const pendingLocalStocks = (stocksRef.current || []).filter(
-      s => s && !remoteStockMap.has(s.id) && !deletedStocks.has(s.id)
+      s => s && pendingCreatedStocks.has(s.id) && !remoteStockMap.has(s.id) && !deletedStocks.has(s.id)
     );
     const validRemoteStocks = remoteStocks.filter(s => !deletedStocks.has(s.id));
     const mergedStocks = [...validRemoteStocks, ...pendingLocalStocks];
@@ -331,8 +387,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const remoteBills = snapshot.bills || [];
     const remoteBillMap = new Map<string, BillItem>(remoteBills.map(b => [b.id, b]));
     const deletedBills = deletedBillIdsRef.current;
+    const pendingCreatedBills = pendingCreatedBillIdsRef.current;
+
+    pendingCreatedBills.forEach(id => {
+      if (remoteBillMap.has(id)) pendingCreatedBills.delete(id);
+    });
+
     const pendingLocalBills = (billsRef.current || []).filter(
-      b => b && !remoteBillMap.has(b.id) && !deletedBills.has(b.id)
+      b => b && pendingCreatedBills.has(b.id) && !remoteBillMap.has(b.id) && !deletedBills.has(b.id)
     );
     const validRemoteBills = remoteBills.filter(b => !deletedBills.has(b.id));
     const mergedBills = [...validRemoteBills, ...pendingLocalBills];
@@ -478,18 +540,30 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Realtime updates are primary; polling covers reconnects and suspended mobile apps.
   useEffect(() => {
     if (!activeVaultId) return;
-    const channel = subscribeToVaultState(activeVaultId, () => {
-      void pullFromCloudRef.current();
-    });
+    const channel = subscribeToVaultState(
+      activeVaultId,
+      (incomingSnapshot, senderId) => {
+        // Instant broadcast from partner via WebSocket (< 30ms latency)
+        if (senderId && senderId === currentUserRef.current?.id) return;
+        applyWorkspaceSnapshot(incomingSnapshot);
+        triggerSyncFlash();
+      },
+      () => {
+        // Fallback for Postgres database change events
+        void pullFromCloudRef.current();
+      }
+    );
+    realtimeChannelRef.current = channel;
     void pullFromCloudRef.current();
     const interval = setInterval(() => {
       void pullFromCloudRef.current();
     }, 15000);
     return () => {
       clearInterval(interval);
+      realtimeChannelRef.current = null;
       void getSupabase().removeChannel(channel);
     };
-  }, [activeVaultId]);
+  }, [activeVaultId, applyWorkspaceSnapshot, triggerSyncFlash]);
 
   // Also sync on app focus
   useEffect(() => {
@@ -551,7 +625,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     currencyRef.current = c;
     CloudStore.saveCurrency(c);
     triggerSyncFlash();
-    pushToCloud({ currency: c });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ currency: c });
   };
 
   /* ─── User profile ────────────────────────────────────────────────────── */
@@ -598,7 +673,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       CloudStore.saveVault(updatedVault);
     }
     triggerSyncFlash();
-    pushToCloud({ budgets: newBudgets });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ budgets: newBudgets });
     showToast('Monthly budgets saved successfully', 'success');
   }, [triggerSyncFlash, pushToCloud, showToast]);
 
@@ -632,7 +708,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         setViewMode('both');
       }
 
-      // 4. Instantly persist to local storage cache
+      // 4. Register newly created ID and persist to local storage cache
+      pendingCreatedTxIdsRef.current.add(newTx.id);
       CloudStore.saveTransactions(updated);
       triggerSyncFlash();
 
@@ -674,6 +751,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteTransaction = (id: string) => {
+    pendingCreatedTxIdsRef.current.delete(id);
     deletedTxIdsRef.current.add(id);
     const updated = (transactionsRef.current || []).filter(t => t.id !== id);
     transactionsRef.current = updated;
@@ -693,7 +771,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     categoriesRef.current = updated;
     CloudStore.saveCategories(updated);
     triggerSyncFlash();
-    pushToCloud({ categories: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ categories: updated });
     showToast('Category created successfully', 'success');
     return newCat.id;
   };
@@ -702,11 +781,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addGoal = (goal: Omit<FinanceGoal, 'id' | 'currentAmount' | 'contributions'>) => {
     const newGoal: FinanceGoal = { ...goal, id: createRecordId('goal'), currentAmount: 0, contributions: [] };
     const updated = [newGoal, ...(goalsRef.current || [])];
+    pendingCreatedGoalIdsRef.current.add(newGoal.id);
     setGoals(updated);
     goalsRef.current = updated;
     CloudStore.saveGoals(updated);
     triggerSyncFlash();
-    pushToCloud({ goals: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
     showToast('Finance goal created successfully', 'success');
   };
 
@@ -738,6 +819,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true, notes: note || 'Contribution towards couple goal',
       createdAt: new Date().toISOString(),
     };
+    pendingCreatedTxIdsRef.current.add(transaction.id);
     const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
     setGoals(updatedGoals);
     goalsRef.current = updatedGoals;
@@ -746,18 +828,21 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
-    pushToCloud({ goals: updatedGoals, transactions: updatedTransactions });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updatedGoals, transactions: updatedTransactions });
     showToast('Goal contribution recorded', 'success');
   };
 
   const deleteGoal = (id: string) => {
+    pendingCreatedGoalIdsRef.current.delete(id);
     deletedGoalIdsRef.current.add(id);
     const updated = (goalsRef.current || []).filter(g => g.id !== id);
     setGoals(updated);
     goalsRef.current = updated;
     CloudStore.saveGoals(updated);
     triggerSyncFlash();
-    pushToCloud({ goals: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
     showToast('Goal removed', 'info');
   };
 
@@ -779,6 +864,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       notes: newStock.notes || `Stock investment by ${newStock.userName}`,
       createdAt: new Date().toISOString(),
     };
+    pendingCreatedStockIdsRef.current.add(newStock.id);
+    pendingCreatedTxIdsRef.current.add(transaction.id);
     const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
     setStocks(updatedStocks);
     stocksRef.current = updatedStocks;
@@ -787,18 +874,21 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
-    pushToCloud({ stocks: updatedStocks, transactions: updatedTransactions });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ stocks: updatedStocks, transactions: updatedTransactions });
     showToast('Stock investment recorded', 'success');
   };
 
   const deleteStock = (id: string) => {
+    pendingCreatedStockIdsRef.current.delete(id);
     deletedStockIdsRef.current.add(id);
     const updated = (stocksRef.current || []).filter(s => s.id !== id);
     setStocks(updated);
     stocksRef.current = updated;
     CloudStore.saveStocks(updated);
     triggerSyncFlash();
-    pushToCloud({ stocks: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ stocks: updated });
     showToast('Stock investment removed', 'info');
   };
 
@@ -806,11 +896,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addBill = (bill: Omit<BillItem, 'id' | 'isPaid'>) => {
     const newBill: BillItem = { ...bill, id: createRecordId('bill'), isPaid: false };
     const updated = [newBill, ...(billsRef.current || [])];
+    pendingCreatedBillIdsRef.current.add(newBill.id);
     setBills(updated);
     billsRef.current = updated;
     CloudStore.saveBills(updated);
     triggerSyncFlash();
-    pushToCloud({ bills: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ bills: updated });
     showToast('Bill added successfully', 'success');
   };
 
@@ -835,6 +927,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true, notes: `Paid on ${new Date().toLocaleDateString()}`,
       createdAt: new Date().toISOString(),
     };
+    pendingCreatedTxIdsRef.current.add(transaction.id);
     const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
     setBills(updatedBills);
     billsRef.current = updatedBills;
@@ -843,18 +936,21 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
-    pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
     showToast('Bill marked as paid', 'success');
   };
 
   const deleteBill = (id: string) => {
+    pendingCreatedBillIdsRef.current.delete(id);
     deletedBillIdsRef.current.add(id);
     const updated = (billsRef.current || []).filter(b => b.id !== id);
     setBills(updated);
     billsRef.current = updated;
     CloudStore.saveBills(updated);
     triggerSyncFlash();
-    pushToCloud({ bills: updated });
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ bills: updated });
     showToast('Bill removed', 'info');
   };
 
