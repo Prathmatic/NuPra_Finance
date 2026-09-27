@@ -497,5 +497,6 @@ export function subscribeToVaultState(vaultId: string, onChange: () => void): Re
       schema: 'public',
       table: 'profiles',
     }, onChange)
+    .on('broadcast', { event: 'sync' }, onChange)
     .subscribe();
 }
