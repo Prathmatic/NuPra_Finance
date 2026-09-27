@@ -57,14 +57,20 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
         </div>
 
         {/* Current status info */}
-        <div className="mt-4 p-3 rounded-2xl bg-slate-800/70 border border-white/5 flex items-center justify-between">
+        <div className="mt-4 p-3 rounded-2xl bg-slate-800/70 border border-white/5 flex items-center justify-between gap-2">
           <div>
             <p className="text-[11px] text-slate-400">Remaining to Goal:</p>
             <p className="text-sm font-bold text-amber-400">{formatCurrency(remaining, currency)}</p>
           </div>
           <div className="text-right">
-            <p className="text-[11px] text-slate-400">Contributor:</p>
-            <p className="text-xs font-semibold text-white">{currentUser!.name}</p>
+            <p className="text-[11px] text-slate-400">Assigned To:</p>
+            <p className="text-xs font-semibold text-rose-300">
+              {goal.assignedTo === 'me'
+                ? (goal.assignedUserId === currentUser?.id ? 'You' : (goal.assignedUserName || 'Partner'))
+                : goal.assignedTo === 'partner'
+                ? (goal.assignedUserId === currentUser?.id ? 'You' : (goal.assignedUserName || 'Partner'))
+                : 'Both of Us'}
+            </p>
           </div>
         </div>
 

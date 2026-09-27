@@ -87,6 +87,9 @@ export interface FinanceGoal {
   createdByUserId: string;
   createdByUserName: string;
   isShared: boolean;
+  assignedTo?: 'both' | 'me' | 'partner' | string;
+  assignedUserId?: string;
+  assignedUserName?: string;
   contributions: GoalContribution[];
   notes?: string;
 }
