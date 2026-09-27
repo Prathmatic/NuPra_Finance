@@ -311,3 +311,7 @@ create policy vault_finance_state_update_members on public.vault_finance_state
 for update to authenticated
 using ((select private.is_vault_member(vault_id)))
 with check ((select private.is_vault_member(vault_id)) and updated_by = (select auth.uid()));
+
+-- Enable Realtime for live sync
+alter publication supabase_realtime add table public.vault_finance_state;
+alter publication supabase_realtime add table public.profiles;

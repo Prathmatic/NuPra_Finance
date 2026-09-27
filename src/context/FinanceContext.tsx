@@ -208,6 +208,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       await saveFinanceSnapshot(vault.id, snapshot);
       setAuthError('');
+      // Send a broadcast event to instantly trigger pullFromCloud on partner devices
+      getSupabase().channel(`vault-state:${vault.id}`).send({
+        type: 'broadcast',
+        event: 'sync',
+        payload: {}
+      });
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Could not sync finance data.');
     }
