@@ -15,15 +15,22 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   const { budgets, updateBudgets, currentUser, partner, currency, vault } = useFinance();
 
   // Accurately resolve currentUser's individual budget and partner's individual budget by unique userId
-  const myCurrentBudget = (currentUser?.id && budgets.userBudgets?.[currentUser.id]) 
-    ?? (currentUser?.id === vault?.partner1?.id ? budgets.me : budgets.partner)
-    ?? budgets.me 
-    ?? 0;
+  const currentUserId = currentUser?.id;
+  const partnerId = partner?.id;
 
-  const partnerCurrentBudget = (partner?.id && budgets.userBudgets?.[partner.id])
-    ?? (partner?.id === vault?.partner2?.id ? budgets.partner : budgets.me)
+  const myCurrentBudget = Number(
+    (currentUserId ? budgets.userBudgets?.[currentUserId] : undefined) 
+    ?? (currentUserId === vault?.partner1?.id ? budgets.me : budgets.partner)
+    ?? budgets.me 
+    ?? 0
+  );
+
+  const partnerCurrentBudget = Number(
+    (partnerId ? budgets.userBudgets?.[partnerId] : undefined)
+    ?? (partnerId === vault?.partner2?.id ? budgets.partner : budgets.me)
     ?? budgets.partner 
-    ?? 0;
+    ?? 0
+  );
 
   const [coupleBudget, setCoupleBudget] = useState('0');
   const [myBudget, setMyBudget] = useState('0');

@@ -455,11 +455,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(localBudgets?.userBudgets || {}),
       ...(rawLoadedBudgets?.userBudgets || {}),
     };
+    const currentUserId = currentUserRef.current?.id;
+    const resolvedMe = currentUserId ? mergedUserBudgets[currentUserId] : undefined;
     const loadedBudgets: BudgetsConfig = {
-      couple: rawLoadedBudgets?.couple ?? localBudgets?.couple ?? 0,
+      couple: Number(rawLoadedBudgets?.couple ?? localBudgets?.couple ?? 0),
       userBudgets: mergedUserBudgets,
-      me: (currentUserRef.current?.id && mergedUserBudgets[currentUserRef.current.id]) ?? rawLoadedBudgets?.me ?? localBudgets?.me ?? 0,
-      partner: rawLoadedBudgets?.partner ?? localBudgets?.partner ?? 0,
+      me: Number(resolvedMe ?? rawLoadedBudgets?.me ?? localBudgets?.me ?? 0),
+      partner: Number(rawLoadedBudgets?.partner ?? localBudgets?.partner ?? 0),
     };
 
     // Update state & refs

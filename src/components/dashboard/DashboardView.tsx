@@ -112,15 +112,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const savingsRate = monthlyIncome > 0 ? Math.round((monthlySavings / monthlyIncome) * 100) : 0;
 
   // Budget calculations mapped accurately by user ID
-  const coupleLimit = budgets.couple || 0;
-  const myLimit = (currentUser?.id && budgets.userBudgets?.[currentUser.id]) 
+  const coupleLimit = Number(budgets.couple || 0);
+  const myLimit = Number(
+    (currentUser?.id ? budgets.userBudgets?.[currentUser.id] : undefined) 
     ?? (currentUser?.id === vault?.partner1?.id ? budgets.me : budgets.partner)
     ?? budgets.me 
-    ?? 0;
-  const partnerLimit = (partner?.id && budgets.userBudgets?.[partner.id]) 
+    ?? 0
+  );
+  const partnerLimit = Number(
+    (partner?.id ? budgets.userBudgets?.[partner.id] : undefined) 
     ?? (partner?.id === vault?.partner2?.id ? budgets.partner : budgets.me)
     ?? budgets.partner 
-    ?? 0;
+    ?? 0
+  );
 
   const couplePercent = coupleLimit > 0 ? Math.round((totalCoupleExpense / coupleLimit) * 100) : 0;
   const myPercent = myLimit > 0 ? Math.round((myExpense / myLimit) * 100) : 0;
