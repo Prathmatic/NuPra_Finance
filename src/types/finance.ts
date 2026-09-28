@@ -108,6 +108,8 @@ export interface StockInvestment {
   notes?: string;
 }
 
+export type BillSplitType = 'equal' | 'full_debt' | 'personal';
+
 export interface BillItem {
   id: string;
   title: string;
@@ -120,4 +122,12 @@ export interface BillItem {
   paidByUserId?: string;
   paidByUserName?: string;
   recurring: 'none' | 'monthly' | 'yearly';
+  splitType?: BillSplitType;
+  payerId?: string;
+  payerName?: string;
+  borrowerId?: string;
+  borrowerName?: string;
+  isSettled?: boolean;
+  settledDate?: string;
+  notes?: string;
 }

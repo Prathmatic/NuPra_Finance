@@ -88,8 +88,10 @@ interface FinanceContextType {
 
   // Bill Actions
   addBill: (bill: Omit<BillItem, 'id' | 'isPaid'>) => void;
-  markBillAsPaid: (billId: string) => void;
+  markBillAsPaid: (billId: string, paidByUserId?: string, paidByUserName?: string) => void;
   deleteBill: (id: string) => void;
+  settleBill: (billId: string) => void;
+  settleAllBills: (recordTx?: boolean) => void;
 
   // Sync
   refreshSync: () => Promise<void>;
@@ -906,25 +908,43 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast('Bill added successfully', 'success');
   };
 
-  const markBillAsPaid = (billId: string) => {
+  const markBillAsPaid = (billId: string, paidByUserId?: string, paidByUserName?: string) => {
     if (!currentUser) return;
+    const payerId = paidByUserId || currentUser.id;
+    const payerName = paidByUserName || (payerId === currentUser.id ? currentUser.name : (partner?.name || 'Partner'));
     let paidBill: BillItem | undefined;
     const updatedBills = (billsRef.current || []).map(b => {
       if (b.id !== billId) return b;
-      paidBill = { ...b, isPaid: true, paidDate: new Date().toISOString().split('T')[0], paidByUserId: currentUser.id, paidByUserName: currentUser.name };
+      paidBill = {
+        ...b,
+        isPaid: true,
+        paidDate: new Date().toISOString().split('T')[0],
+        paidByUserId: payerId,
+        paidByUserName: payerName,
+        payerId: payerId,
+        payerName: payerName,
+      };
       return paidBill;
     });
     if (!paidBill) return;
     const transaction: Transaction = {
       id: createRecordId('tx'),
-      title: `Bill Paid: ${paidBill.title}`, amount: paidBill.amount, type: 'expense',
-      categoryId: 'cat-utilities', categoryName: paidBill.categoryName || 'Utilities',
-      categoryColor: paidBill.categoryColor || '#F97316', categoryIcon: 'Zap',
+      title: `Bill Paid: ${paidBill.title}`,
+      amount: paidBill.amount,
+      type: 'expense',
+      categoryId: 'cat-utilities',
+      categoryName: paidBill.categoryName || 'Utilities',
+      categoryColor: paidBill.categoryColor || '#F97316',
+      categoryIcon: 'Zap',
       paymentMethod: 'UPI / Pix',
       date: new Date().toISOString().split('T')[0],
-      userId: currentUser.id, userName: currentUser.name,
-      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
-      isShared: true, notes: `Paid on ${new Date().toLocaleDateString()}`,
+      userId: payerId,
+      userName: payerName,
+      userAvatar: payerId === currentUser.id
+        ? ((currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined)
+        : ((partner?.avatarUrl && !partner.avatarUrl.startsWith('data:')) ? partner.avatarUrl : undefined),
+      isShared: true,
+      notes: `Bill payment for ${paidBill.title}`,
       createdAt: new Date().toISOString(),
     };
     pendingCreatedTxIdsRef.current.add(transaction.id);
@@ -938,7 +958,43 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
-    showToast('Bill marked as paid', 'success');
+    showToast(`Bill marked as paid by ${payerName}`, 'success');
+  };
+
+  const settleBill = (billId: string) => {
+    const updated = (billsRef.current || []).map(b => {
+      if (b.id === billId) {
+        return {
+          ...b,
+          isSettled: true,
+          settledDate: new Date().toISOString().split('T')[0],
+        };
+      }
+      return b;
+    });
+    setBills(updated);
+    billsRef.current = updated;
+    CloudStore.saveBills(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ bills: updated });
+    showToast('Debt marked as settled', 'success');
+  };
+
+  const settleAllBills = (recordTx: boolean = true) => {
+    const nowIso = new Date().toISOString().split('T')[0];
+    const updated = (billsRef.current || []).map(b => ({
+      ...b,
+      isSettled: true,
+      settledDate: nowIso,
+    }));
+    setBills(updated);
+    billsRef.current = updated;
+    CloudStore.saveBills(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ bills: updated });
+    showToast('All debts settled up successfully! 🎉', 'success');
   };
 
   const deleteBill = (id: string) => {
@@ -975,6 +1031,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addGoal, contributeToGoal, deleteGoal,
         addStock, deleteStock,
         addBill, markBillAsPaid, deleteBill,
+        settleBill, settleAllBills,
         refreshSync: pullFromCloud,
       }}
     >
