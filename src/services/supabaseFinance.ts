@@ -317,6 +317,7 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
             couple: Number(parsed.couple) || Number(vaultRow.monthly_budget) || 0,
             me: Number(parsed.me) || 0,
             partner: Number(parsed.partner) || 0,
+            userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
           };
         }
       } catch {}
@@ -457,6 +458,7 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
           couple: Number(parsed.couple) || 0,
           me: Number(parsed.me) || 0,
           partner: Number(parsed.partner) || 0,
+          userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
         };
       }
     } catch {}

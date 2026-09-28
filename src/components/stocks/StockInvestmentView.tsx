@@ -4,6 +4,8 @@ import {
   TrendingUp, 
   Plus, 
   Trash2, 
+  Edit2,
+  Lock,
   Calendar, 
   PieChart, 
   DollarSign, 
@@ -12,6 +14,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatMonthYear } from '../../utils/formatters';
 import { StockInvestment } from '../../types/finance';
+import { EditStockModal } from './EditStockModal';
 
 interface StockInvestmentViewProps {
   onOpenAddStockModal: () => void;
@@ -37,6 +40,7 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
   const [selectedMonth, setSelectedMonth] = useState<string>(
     availableMonths[0] || new Date().toISOString().slice(0, 7)
   );
+  const [editingStock, setEditingStock] = useState<StockInvestment | null>(null);
 
   // Month-specific calculations (Explicit user requirement)
   const monthStats = useMemo(() => {
@@ -260,21 +264,45 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
                     </div>
                   </div>
 
-                  {stock.userId === currentUser?.id && (
-                    <button
-                      onClick={() => deleteStock(stock.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
-                      title="Remove stock entry"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1 pl-1">
+                    {stock.userId === currentUser?.id ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setEditingStock(stock)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                          title="Edit stock entry"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteStock(stock.id)}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-80 hover:opacity-100"
+                          title="Remove stock entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="p-1.5 text-slate-600" title={`Recorded by ${stock.userName} (Read-only)`}>
+                        <Lock className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Edit Stock Modal */}
+      <EditStockModal
+        stock={editingStock}
+        isOpen={Boolean(editingStock)}
+        onClose={() => setEditingStock(null)}
+      />
     </div>
   );
 };

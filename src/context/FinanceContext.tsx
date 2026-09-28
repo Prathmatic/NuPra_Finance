@@ -57,7 +57,7 @@ interface FinanceContextType {
 
   // Budgets (default 0)
   budgets: BudgetsConfig;
-  updateBudgets: (newBudgets: BudgetsConfig) => void;
+  updateBudgets: (newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => void;
 
   // Auth
   completeOnboarding: (user: UserProfile, vault: CoupleVault) => Promise<void>;
@@ -88,6 +88,7 @@ interface FinanceContextType {
 
   // Stock Actions
   addStock: (stock: Omit<StockInvestment, 'id'>) => void;
+  updateStock: (stock: StockInvestment) => void;
   deleteStock: (id: string) => void;
 
   // Bill Actions
@@ -447,8 +448,19 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     // 6. Currency
     const validCurrency = snapshot.currency || 'INR';
 
-    // 7. Budgets
-    const loadedBudgets = snapshot.budgets || CloudStore.getBudgets();
+    // 7. Budgets (Preserve each partner's userBudgets)
+    const rawLoadedBudgets = snapshot.budgets || CloudStore.getBudgets();
+    const localBudgets = budgetsRef.current || CloudStore.getBudgets();
+    const mergedUserBudgets: Record<string, number> = {
+      ...(localBudgets?.userBudgets || {}),
+      ...(rawLoadedBudgets?.userBudgets || {}),
+    };
+    const loadedBudgets: BudgetsConfig = {
+      couple: rawLoadedBudgets?.couple ?? localBudgets?.couple ?? 0,
+      userBudgets: mergedUserBudgets,
+      me: (currentUserRef.current?.id && mergedUserBudgets[currentUserRef.current.id]) ?? rawLoadedBudgets?.me ?? localBudgets?.me ?? 0,
+      partner: rawLoadedBudgets?.partner ?? localBudgets?.partner ?? 0,
+    };
 
     // Update state & refs
     setTransactions(mergedTxs);
@@ -693,14 +705,36 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   /* ─── Budgets ─────────────────────────────────────────────────────────── */
-  const updateBudgets = useCallback((newBudgets: BudgetsConfig) => {
-    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0 };
-    // Preserve partner's budget; user can only adjust couple and their own personal budget
+  const updateBudgets = useCallback((newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => {
+    if (!currentUserRef.current) return;
+    const currentUserId = currentUserRef.current.id;
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {} };
+    const updatedUserBudgets: Record<string, number> = { ...(activeBudgets.userBudgets || {}) };
+
+    // Update currentUser's personal budget if provided
+    if (newBudgets.myBudget !== undefined) {
+      updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
+    } else if (newBudgets.me !== undefined) {
+      updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
+    }
+
+    // Couple budget is joint: either partner can set or modify it!
+    const newCouple = newBudgets.couple !== undefined
+      ? Math.max(0, newBudgets.couple)
+      : (activeBudgets.couple || 0);
+
+    // Partner's budget is strictly preserved (read-only for current user)
+    const partnerId = partner?.id;
+    const myAmount = updatedUserBudgets[currentUserId] || 0;
+    const partnerAmount = partnerId ? (updatedUserBudgets[partnerId] || 0) : (activeBudgets.partner || 0);
+
     const safeBudgets: BudgetsConfig = {
-      couple: newBudgets.couple ?? activeBudgets.couple,
-      me: newBudgets.me ?? activeBudgets.me,
-      partner: activeBudgets.partner ?? 0,
+      couple: newCouple,
+      userBudgets: updatedUserBudgets,
+      me: myAmount,
+      partner: partnerAmount,
     };
+
     setBudgets(safeBudgets);
     budgetsRef.current = safeBudgets;
     CloudStore.saveBudgets(safeBudgets);
@@ -720,7 +754,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ budgets: safeBudgets });
     showToast('Monthly budgets saved successfully', 'success');
-  }, [triggerSyncFlash, pushToCloud, showToast]);
+  }, [partner, triggerSyncFlash, pushToCloud, showToast]);
 
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
@@ -1032,6 +1066,32 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast('Stock investment recorded', 'success');
   };
 
+  const updateStock = (updatedStock: StockInvestment) => {
+    if (!currentUser) return;
+    const existing = (stocksRef.current || []).find(s => s.id === updatedStock.id);
+    if (!existing) return;
+    if (existing.userId !== currentUser.id) {
+      showToast("You cannot modify your partner's stock investment", 'error');
+      return;
+    }
+
+    const cleanStock: StockInvestment = {
+      ...updatedStock,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+    };
+
+    const updated = (stocksRef.current || []).map(s => (s.id === cleanStock.id ? cleanStock : s));
+    setStocks(updated);
+    stocksRef.current = updated;
+    CloudStore.saveStocks(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ stocks: updated });
+    showToast('Stock investment updated', 'success');
+  };
+
   const deleteStock = (id: string) => {
     if (!currentUser) return;
     const existing = (stocksRef.current || []).find(s => s.id === id);
@@ -1190,7 +1250,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         toggleFlagTransaction, addTransactionComment,
         addCategory,
         addGoal, contributeToGoal, deleteGoal,
-        addStock, deleteStock,
+        addStock, updateStock, deleteStock,
         addBill, markBillAsPaid, deleteBill,
         settleBill, settleAllBills,
         refreshSync: pullFromCloud,

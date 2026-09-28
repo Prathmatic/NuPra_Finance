@@ -25,8 +25,9 @@ export interface CoupleVault {
 
 export interface BudgetsConfig {
   couple: number;
-  me: number;
-  partner: number;
+  me?: number;
+  partner?: number;
+  userBudgets?: Record<string, number>;
 }
 
 export interface Category {

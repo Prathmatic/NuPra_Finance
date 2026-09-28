@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { X, Check, PiggyBank, User, Users, Lock } from 'lucide-react';
+import { X, Check, PiggyBank, User, Users, Lock, ShieldCheck } from 'lucide-react';
 import { getCurrencySymbol } from '../../utils/formatters';
 
 interface BudgetSettingsModalProps {
@@ -12,19 +12,28 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { budgets, updateBudgets, currentUser, partner, currency } = useFinance();
+  const { budgets, updateBudgets, currentUser, partner, currency, vault } = useFinance();
+
+  // Accurately resolve currentUser's individual budget and partner's individual budget by unique userId
+  const myCurrentBudget = (currentUser?.id && budgets.userBudgets?.[currentUser.id]) 
+    ?? (currentUser?.id === vault?.partner1?.id ? budgets.me : budgets.partner)
+    ?? budgets.me 
+    ?? 0;
+
+  const partnerCurrentBudget = (partner?.id && budgets.userBudgets?.[partner.id])
+    ?? (partner?.id === vault?.partner2?.id ? budgets.partner : budgets.me)
+    ?? budgets.partner 
+    ?? 0;
 
   const [coupleBudget, setCoupleBudget] = useState('0');
   const [myBudget, setMyBudget] = useState('0');
-  const [partnerBudget, setPartnerBudget] = useState('0');
 
   useEffect(() => {
     if (isOpen) {
       setCoupleBudget((budgets.couple || 0).toString());
-      setMyBudget((budgets.me || 0).toString());
-      setPartnerBudget((budgets.partner || 0).toString());
+      setMyBudget((myCurrentBudget || 0).toString());
     }
-  }, [isOpen, budgets]);
+  }, [isOpen, budgets.couple, myCurrentBudget]);
 
   if (!isOpen || !currentUser) return null;
 
@@ -35,8 +44,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
 
     updateBudgets({
       couple: cVal,
-      me: mVal,
-      partner: budgets.partner || 0,
+      myBudget: mVal,
     });
 
     onClose();
@@ -55,7 +63,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">Monthly Budget Limits</h2>
-              <p className="text-[11px] text-slate-400">Set joint and individual spending caps (0 = unlimited)</p>
+              <p className="text-[11px] text-slate-400">Joint budget & isolated personal limits (0 = unlimited)</p>
             </div>
           </div>
           <button
@@ -67,13 +75,18 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          {/* Couple Joint Monthly Budget */}
-          <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <Users className="w-3.5 h-3.5 text-indigo-400" />
-              <label className="text-xs font-bold text-white">
-                Couple Joint Monthly Budget
-              </label>
+          {/* Couple Joint Monthly Budget (Both partners can set/modify) */}
+          <div className="p-3.5 rounded-2xl bg-slate-800/40 border border-indigo-500/20 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-indigo-400" />
+                <label className="text-xs font-bold text-white">
+                  Couple Joint Monthly Budget
+                </label>
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Shared Joint
+              </span>
             </div>
             <div className="relative flex items-center">
               <span className="absolute left-3.5 text-sm font-bold text-slate-400">
@@ -86,21 +99,26 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
                 value={coupleBudget}
                 onChange={(e) => setCoupleBudget(e.target.value)}
                 placeholder="0"
-                className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
+                className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
               />
             </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Combined spending limit for both partners per month.
+            <p className="text-[10px] text-slate-400">
+              Combined spending limit for both partners per month. Either partner can set or adjust this.
             </p>
           </div>
 
-          {/* My Individual Monthly Budget */}
-          <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <User className="w-3.5 h-3.5 text-emerald-400" />
-              <label className="text-xs font-bold text-white">
-                {currentUser.name}'s Individual Budget (Me)
-              </label>
+          {/* My Individual Monthly Budget (Only currentUser can modify) */}
+          <div className="p-3.5 rounded-2xl bg-slate-800/40 border border-emerald-500/20 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-emerald-400" />
+                <label className="text-xs font-bold text-white">
+                  {currentUser.name}'s Individual Budget (Me)
+                </label>
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Only You Can Edit
+              </span>
             </div>
             <div className="relative flex items-center">
               <span className="absolute left-3.5 text-sm font-bold text-slate-400">
@@ -113,41 +131,41 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
                 value={myBudget}
                 onChange={(e) => setMyBudget(e.target.value)}
                 placeholder="0"
-                className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-emerald-500 transition-all placeholder:text-slate-600"
+                className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-emerald-500 transition-all placeholder:text-slate-600"
               />
             </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Personal spending limit for your own expenses.
+            <p className="text-[10px] text-slate-400">
+              Your personal spending limit. Your partner cannot modify this value.
             </p>
           </div>
 
-          {/* Partner's Individual Monthly Budget (Read-only) */}
+          {/* Partner's Individual Monthly Budget (Strictly Read-only) */}
           {partner && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
+            <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-white/5 space-y-2 opacity-80">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <User className="w-3.5 h-3.5 text-purple-400" />
-                  <label className="text-xs font-bold text-white">
+                  <label className="text-xs font-bold text-slate-300">
                     {partner.name}'s Individual Budget
                   </label>
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Set by {partner.name}
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-white/10 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-slate-400" /> Set by {partner.name}
                 </span>
               </div>
-              <div className="relative flex items-center opacity-60">
-                <span className="absolute left-3.5 text-sm font-bold text-slate-400">
+              <div className="relative flex items-center">
+                <span className="absolute left-3.5 text-sm font-bold text-slate-500">
                   {currencySymbol}
                 </span>
                 <input
                   type="number"
                   disabled
-                  value={partnerBudget}
-                  className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-900 border border-white/5 text-slate-300 font-bold text-sm cursor-not-allowed"
+                  value={partnerCurrentBudget}
+                  className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-950/60 border border-white/5 text-slate-400 font-bold text-sm cursor-not-allowed"
                 />
               </div>
-              <p className="text-[10px] text-slate-500 mt-1">
-                Personal spending limit can only be configured by {partner.name}.
+              <p className="text-[10px] text-slate-500">
+                Only {partner.name} can configure their personal monthly budget. You cannot modify it.
               </p>
             </div>
           )}

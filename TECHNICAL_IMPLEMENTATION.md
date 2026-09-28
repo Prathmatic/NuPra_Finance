@@ -324,8 +324,9 @@ App.tsx
 | **Category Labels** | Create On-The-Fly / Custom Labels | Allowed | Allowed (Auto-synced) |
 | **Bills & Debt** | Create, Settle, Mark Paid | Allowed | Allowed |
 | **Financial Goals** | Create, Contribute, Delete | Allowed | Allowed (Assigned to Me/Partner/Both) |
-| **Stock Investments** | Record Purchase, Attribution | Allowed | Allowed |
-| **Monthly Budget** | Set Couple / Individual Limits | Allowed | Allowed |
+| **Stock Investments** | Edit / Delete Stock Entry | Allowed | **Blocked (Read-Only Lock)** |
+| **Joint Monthly Budget** | Modify Joint Couple Cap (`couple`) | Allowed | Allowed |
+| **Personal Monthly Budget** | Modify Individual Cap (`userBudgets[id]`) | Allowed | **Blocked (Read-Only Lock)** |
 
 ### 6.2 Key Functionality Details
 
@@ -348,6 +349,12 @@ App.tsx
      - **I Owe Partner**: Partner paid upfront; records user debt.
      - **Personal**: Individual expense not shared with partner.
    - One-tap "Pay" action transitions the bill status and automatically posts the transaction to the ledger.
+5. **Isolated Personal Budgets & Joint Monthly Budget ([BudgetSettingsModal.tsx](src/components/dashboard/BudgetSettingsModal.tsx))**:
+   - Individual monthly budgets are keyed by user ID in `budgets.userBudgets[userId]`. Neither partner can modify or overwrite the other partner's personal budget limit.
+   - The couple joint monthly budget (`budgets.couple`) is shared; either partner can set and adjust the combined spending cap.
+6. **Stock Investment Attribution & Protection ([StockInvestmentView.tsx](src/components/stocks/StockInvestmentView.tsx))**:
+   - Equity entries enforce `stock.userId === currentUser.id`.
+   - Only the purchasing partner can edit (via `EditStockModal`) or delete their stock record. Partner's entries are strictly read-only with a locked indicator.
 
 ---
 
