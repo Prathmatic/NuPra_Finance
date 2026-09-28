@@ -21,6 +21,7 @@ import {
   saveFinanceSnapshot,
   signOut as signOutFromSupabase,
   subscribeToVaultState,
+} from '../services/supabaseFinance';
 import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { Toast, ToastMessage } from '../components/common/Toast';
