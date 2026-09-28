@@ -9,7 +9,8 @@ import {
   BillItem, 
   Category, 
   CurrencyCode,
-  BudgetsConfig 
+  BudgetsConfig,
+  TransactionComment
 } from '../types/finance';
 import { CloudStore } from '../services/cloudSync';
 import {
@@ -73,6 +74,8 @@ interface FinanceContextType {
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
   updateTransaction: (tx: Transaction) => void;
   deleteTransaction: (id: string) => void;
+  toggleFlagTransaction: (transactionId: string) => void;
+  addTransactionComment: (transactionId: string, text: string) => void;
 
   // Category Actions
   addCategory: (cat: Omit<Category, 'id'>) => string;
@@ -792,6 +795,65 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast('Transaction removed', 'info');
   };
 
+  const toggleFlagTransaction = (transactionId: string) => {
+    if (!currentUser) return;
+    let newFlagState = false;
+    const updated = (transactionsRef.current || []).map(t => {
+      if (t.id === transactionId) {
+        newFlagState = !t.isFlagged;
+        return {
+          ...t,
+          isFlagged: newFlagState,
+          flaggedByUserId: newFlagState ? currentUser.id : undefined,
+          flaggedByUserName: newFlagState ? currentUser.name : undefined,
+          flaggedAt: newFlagState ? new Date().toISOString() : undefined,
+        };
+      }
+      return t;
+    });
+
+    transactionsRef.current = updated;
+    setTransactions(updated);
+    CloudStore.saveTransactions(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ transactions: updated });
+    showToast(newFlagState ? 'Transaction flagged for discussion 🚩' : 'Transaction flag resolved', 'info');
+  };
+
+  const addTransactionComment = (transactionId: string, text: string) => {
+    if (!currentUser) return;
+    const cleanText = text.trim();
+    if (!cleanText) return;
+
+    const newComment: TransactionComment = {
+      id: createRecordId('cmnt'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+      text: cleanText,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = (transactionsRef.current || []).map(t => {
+      if (t.id === transactionId) {
+        return {
+          ...t,
+          comments: [...(t.comments || []), newComment],
+        };
+      }
+      return t;
+    });
+
+    transactionsRef.current = updated;
+    setTransactions(updated);
+    CloudStore.saveTransactions(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ transactions: updated });
+    showToast('Comment added', 'success');
+  };
+
   /* ─── Categories ──────────────────────────────────────────────────────── */
   const addCategory = (cat: Omit<Category, 'id'>): string => {
     const newCat: Category = { ...cat, id: createRecordId('cat') };
@@ -1082,6 +1144,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         setActiveTab, setViewMode, setCurrency,
         updateCurrentUserProfile,
         addTransaction, updateTransaction, deleteTransaction,
+        toggleFlagTransaction, addTransactionComment,
         addCategory,
         addGoal, contributeToGoal, deleteGoal,
         addStock, deleteStock,

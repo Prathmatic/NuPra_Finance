@@ -8,13 +8,16 @@ import {
   Plus,
   X,
   FileText,
-  Lock
+  Lock,
+  Flag,
+  MessageSquare
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
 import { MonthNavigator } from '../common/MonthNavigator';
 import { EditTransactionModal } from './EditTransactionModal';
 import { ExportStatementModal } from './ExportStatementModal';
+import { TransactionActivityDrawer } from './TransactionActivityDrawer';
 import { Transaction } from '../../types/finance';
 
 interface TransactionsViewProps {
@@ -29,6 +32,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
     currentUser, 
     partner, 
     deleteTransaction,
+    toggleFlagTransaction,
     selectedMonth 
   } = useFinance();
 
@@ -39,8 +43,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
   const [selectedPayment, setSelectedPayment] = useState<string>('all');
   const [isAllTime, setIsAllTime] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showOnlyFlagged, setShowOnlyFlagged] = useState(false);
+  const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
+
+  const flaggedCount = useMemo(() => {
+    return transactions.filter(t => t.isFlagged).length;
+  }, [transactions]);
 
   const getTxAvatar = (tx: Transaction) => {
     return tx.userAvatar || (tx.userId === currentUser?.id ? currentUser?.avatarUrl : partner?.avatarUrl);
@@ -74,6 +84,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
         if (selectedPayment !== 'None' && t.paymentMethod !== selectedPayment) return false;
       }
 
+      // Flag filter
+      if (showOnlyFlagged && !t.isFlagged) return false;
+
       // Month filter (only if not viewing all time)
       if (!isAllTime && !t.date.startsWith(selectedMonth)) return false;
 
@@ -86,6 +99,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
     selectedType, 
     selectedCategory, 
     selectedPayment, 
+    showOnlyFlagged,
     isAllTime, 
     selectedMonth, 
     currentUser, 
@@ -190,6 +204,19 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
           >
             Income Only
           </button>
+          <button
+            onClick={() => setShowOnlyFlagged(!showOnlyFlagged)}
+            className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
+              showOnlyFlagged 
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20' 
+                : flaggedCount > 0 
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30' 
+                : 'bg-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Flag className={`w-3.5 h-3.5 ${showOnlyFlagged || flaggedCount > 0 ? 'fill-current' : ''}`} />
+            <span>Flagged ({flaggedCount})</span>
+          </button>
         </div>
 
         {/* Expanded Filters Drawer */}
@@ -266,97 +293,166 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
           <p className="text-xs text-slate-400">Try switching months or adjusting your search filters.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {filteredList.map((tx) => {
             const isMyTx = tx.userId === currentUser?.id;
+            const isExpanded = expandedTxId === tx.id;
+            const isFlagged = Boolean(tx.isFlagged);
+            const commentsCount = tx.comments?.length || 0;
+
             return (
-            <div
-              key={tx.id}
-              onClick={() => { if (isMyTx) setEditingTx(tx); }}
-              className={`glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/15 transition-all group ${
-                isMyTx ? 'cursor-pointer' : 'cursor-default'
-              }`}
-              title={isMyTx ? "Click to edit this transaction" : `Recorded by ${tx.userName} (Read-only)`}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div
-                  className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
-                  style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+              <div
+                key={tx.id}
+                className={`glass-card p-3 rounded-2xl border transition-all ${
+                  isFlagged 
+                    ? 'border-amber-500/40 bg-amber-950/10' 
+                    : isExpanded 
+                    ? 'border-indigo-500/40 bg-slate-900/90' 
+                    : 'border-white/5 hover:border-white/15'
+                }`}
+              >
+                <div 
+                  onClick={() => {
+                    if (isMyTx) setEditingTx(tx);
+                    else setExpandedTxId(isExpanded ? null : tx.id);
+                  }}
+                  className={`flex items-center justify-between ${isMyTx ? 'cursor-pointer' : 'cursor-pointer'}`}
+                  title={isMyTx ? "Click to edit (or use comment button below)" : "Click to view discussion & comments"}
                 >
-                  <CategoryIcon name={tx.categoryIcon} size={18} />
-                </div>
-                <div className="min-w-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+                    >
+                      <CategoryIcon name={tx.categoryIcon} size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
+                        <span 
+                          className="text-[9px] px-1.5 py-0.5 rounded-md font-semibold"
+                          style={{ backgroundColor: `${tx.categoryColor}20`, color: tx.categoryColor }}
+                        >
+                          {tx.categoryName}
+                        </span>
+                        {isFlagged && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1">
+                            <Flag className="w-2.5 h-2.5 fill-amber-400" />
+                            <span>Flagged</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+                        <span>{formatDate(tx.date)}</span>
+                        {tx.paymentMethod && tx.paymentMethod !== 'None' && (
+                          <>
+                            <span>•</span>
+                            <span>{tx.paymentMethod}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-2">
-                    <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
-                    <span 
-                      className="text-[9px] px-1.5 py-0.5 rounded-md font-semibold"
-                      style={{ backgroundColor: `${tx.categoryColor}20`, color: tx.categoryColor }}
-                    >
-                      {tx.categoryName}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
-                    <span>{formatDate(tx.date)}</span>
-                    {tx.paymentMethod && tx.paymentMethod !== 'None' && (
-                      <>
-                        <span>•</span>
-                        <span>{tx.paymentMethod}</span>
-                      </>
-                    )}
+                    <div className="text-right">
+                      <p className={`text-xs font-black ${
+                        tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
+                      }`}>
+                        {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
+                      </p>
+                      <div className="flex items-center justify-end gap-1 mt-0.5">
+                        {getTxAvatar(tx) && (
+                          <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
+                        )}
+                        <span className="text-[10px] text-slate-400">{tx.userName}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 pl-1">
+                      {/* Flag Button (1-tap toggle for either partner) */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFlagTransaction(tx.id);
+                        }}
+                        className={`p-1.5 rounded-lg transition-all ${
+                          isFlagged
+                            ? 'text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 ring-1 ring-amber-500/30'
+                            : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
+                        }`}
+                        title={isFlagged ? "Resolve flag" : "Flag for review"}
+                      >
+                        <Flag className={`w-3.5 h-3.5 ${isFlagged ? 'fill-amber-400' : ''}`} />
+                      </button>
+
+                      {/* Comments / Activity Drawer Toggle */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedTxId(isExpanded ? null : tx.id);
+                        }}
+                        className={`p-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                          isExpanded 
+                            ? 'text-indigo-400 bg-indigo-500/20 ring-1 ring-indigo-500/40' 
+                            : commentsCount > 0 
+                            ? 'text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20' 
+                            : 'text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
+                        }`}
+                        title="View discussion & comments"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        {commentsCount > 0 && (
+                          <span className="text-[9px] font-bold px-1 rounded-full bg-indigo-500 text-white">
+                            {commentsCount}
+                          </span>
+                        )}
+                      </button>
+
+                      {isMyTx ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTx(tx);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                            title="Edit transaction"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteTransaction(tx.id);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-80 hover:opacity-100"
+                            title="Delete transaction"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="p-1 text-slate-600" title={`Recorded by ${tx.userName} (Read-only)`}>
+                          <Lock className="w-3.5 h-3.5" />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <p className={`text-xs font-black ${
-                    tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
-                  }`}>
-                    {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
-                  </p>
-                  <div className="flex items-center justify-end gap-1 mt-0.5">
-                    {getTxAvatar(tx) && (
-                      <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
-                    )}
-                    <span className="text-[10px] text-slate-400">{tx.userName}</span>
-                  </div>
-                </div>
-
-                {isMyTx ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingTx(tx);
-                      }}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
-                      title="Edit transaction"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteTransaction(tx.id);
-                      }}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100"
-                      title="Delete transaction"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="p-1.5 text-slate-600" title={`Recorded by ${tx.userName} (Read-only)`}>
-                    <Lock className="w-3.5 h-3.5" />
-                  </div>
+                {/* Inline Collapsible Activity Drawer */}
+                {isExpanded && (
+                  <TransactionActivityDrawer transaction={tx} />
                 )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
         </div>
       )}
 

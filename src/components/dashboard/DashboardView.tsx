@@ -11,13 +11,17 @@ import {
   Users,
   ChevronRight,
   Settings2,
-  Edit2
+  Edit2,
+  Flag,
+  MessageSquare,
+  Lock
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
 import { MonthNavigator } from '../common/MonthNavigator';
 import { BudgetSettingsModal } from './BudgetSettingsModal';
 import { EditTransactionModal } from '../transactions/EditTransactionModal';
+import { TransactionActivityDrawer } from '../transactions/TransactionActivityDrawer';
 import { Transaction } from '../../types/finance';
 
 interface DashboardViewProps {
@@ -42,11 +46,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     viewMode, 
     setActiveTab,
     selectedMonth,
-    budgets
+    budgets,
+    toggleFlagTransaction
   } = useFinance();
 
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
 
   // Filter transactions based on viewMode ('both' | 'me' | 'partner')
   const getTxAvatar = (tx: Transaction) => {
@@ -503,65 +509,140 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {filteredTxs.slice(0, 5).map((tx) => {
               const isMyTx = tx.userId === currentUser?.id;
+              const isExpanded = expandedTxId === tx.id;
+              const isFlagged = Boolean(tx.isFlagged);
+              const commentsCount = tx.comments?.length || 0;
+
               return (
-              <div
-                key={tx.id}
-                onClick={() => { if (isMyTx) setEditingTransaction(tx); }}
-                className={`glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/10 transition-all group ${
-                  isMyTx ? 'cursor-pointer' : 'cursor-default'
-                }`}
-                title={isMyTx ? "Tap to edit this transaction" : `Recorded by ${tx.userName} (Read-only)`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
+                <div
+                  key={tx.id}
+                  className={`glass-card p-3 rounded-2xl border transition-all ${
+                    isFlagged 
+                      ? 'border-amber-500/40 bg-amber-950/10' 
+                      : isExpanded 
+                      ? 'border-indigo-500/40 bg-slate-900/90' 
+                      : 'border-white/5 hover:border-white/10'
+                  }`}
+                >
                   <div
-                    className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+                    onClick={() => {
+                      if (isMyTx) setEditingTransaction(tx);
+                      else setExpandedTxId(isExpanded ? null : tx.id);
+                    }}
+                    className="flex items-center justify-between cursor-pointer"
+                    title={isMyTx ? "Tap to edit (or use comment button below)" : "Tap to view discussion & comments"}
                   >
-                    <CategoryIcon name={tx.categoryIcon} size={18} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
-                      <span>{formatDate(tx.date)}</span>
-                      {tx.paymentMethod && tx.paymentMethod !== 'None' && (
-                        <>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+                      >
+                        <CategoryIcon name={tx.categoryIcon} size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
+                          {isFlagged && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1">
+                              <Flag className="w-2.5 h-2.5 fill-amber-400" />
+                              <span>Flagged</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                          <span>{formatDate(tx.date)}</span>
+                          {tx.paymentMethod && tx.paymentMethod !== 'None' && (
+                            <>
+                              <span>•</span>
+                              <span className="text-slate-300 font-medium">{tx.paymentMethod}</span>
+                            </>
+                          )}
                           <span>•</span>
-                          <span className="text-slate-300 font-medium">{tx.paymentMethod}</span>
-                        </>
-                      )}
-                      <span>•</span>
-                      <span className="text-slate-400 font-medium">{tx.categoryName}</span>
+                          <span className="text-slate-400 font-medium">{tx.categoryName}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <p className={`text-xs font-black ${
+                          tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
+                        }`}>
+                          {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
+                        </p>
+                        <div className="flex items-center justify-end gap-1 mt-1">
+                          {getTxAvatar(tx) && (
+                            <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
+                          )}
+                          <span className="text-[10px] text-slate-400">{tx.userName}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 pl-1">
+                        {/* Flag Button (1-tap toggle) */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFlagTransaction(tx.id);
+                          }}
+                          className={`p-1.5 rounded-lg transition-all ${
+                            isFlagged
+                              ? 'text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 ring-1 ring-amber-500/30'
+                              : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
+                          }`}
+                          title={isFlagged ? "Resolve flag" : "Flag for review"}
+                        >
+                          <Flag className={`w-3.5 h-3.5 ${isFlagged ? 'fill-amber-400' : ''}`} />
+                        </button>
+
+                        {/* Comments Toggle */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedTxId(isExpanded ? null : tx.id);
+                          }}
+                          className={`p-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                            isExpanded 
+                              ? 'text-indigo-400 bg-indigo-500/20 ring-1 ring-indigo-500/40' 
+                              : commentsCount > 0 
+                              ? 'text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20' 
+                              : 'text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
+                          }`}
+                          title="View comments & discussion"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          {commentsCount > 0 && (
+                            <span className="text-[9px] font-bold px-1 rounded-full bg-indigo-500 text-white">
+                              {commentsCount}
+                            </span>
+                          )}
+                        </button>
+
+                        {isMyTx ? (
+                          <div className="p-1 rounded-lg text-slate-500 hover:text-indigo-400 transition-colors">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </div>
+                        ) : (
+                          <div className="p-1 text-slate-600" title={`Recorded by ${tx.userName} (Read-only)`}>
+                            <Lock className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="text-right">
-                    <p className={`text-xs font-black ${
-                      tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
-                    }`}>
-                      {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
-                    </p>
-                    <div className="flex items-center justify-end gap-1 mt-1">
-                      {getTxAvatar(tx) && (
-                        <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
-                      )}
-                      <span className="text-[10px] text-slate-400">{tx.userName}</span>
-                    </div>
-                  </div>
-
-                  {isMyTx && (
-                    <div className="p-1 rounded-lg text-slate-500 group-hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </div>
+                  {/* Inline Collapsible Activity Drawer */}
+                  {isExpanded && (
+                    <TransactionActivityDrawer transaction={tx} />
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         )}
       </div>

@@ -48,6 +48,15 @@ export type PaymentMethod =
   | 'Other'
   | 'None';
 
+export interface TransactionComment {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface Transaction {
   id: string;
   title: string;
@@ -65,6 +74,11 @@ export interface Transaction {
   isShared: boolean;
   notes?: string;
   createdAt: string;
+  isFlagged?: boolean;
+  flaggedByUserId?: string;
+  flaggedByUserName?: string;
+  flaggedAt?: string;
+  comments?: TransactionComment[];
 }
 
 export interface GoalContribution {
