@@ -87,7 +87,7 @@ interface FinanceContextType {
   deleteStock: (id: string) => void;
 
   // Bill Actions
-  addBill: (bill: Omit<BillItem, 'id' | 'isPaid'>) => void;
+  addBill: (bill: Omit<BillItem, 'id'>) => void;
   markBillAsPaid: (billId: string, paidByUserId?: string, paidByUserName?: string) => void;
   deleteBill: (id: string) => void;
   settleBill: (billId: string) => void;
@@ -895,8 +895,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   /* ─── Bills ───────────────────────────────────────────────────────────── */
-  const addBill = (bill: Omit<BillItem, 'id' | 'isPaid'>) => {
-    const newBill: BillItem = { ...bill, id: createRecordId('bill'), isPaid: false };
+  const addBill = (bill: Omit<BillItem, 'id'>) => {
+    const newBill: BillItem = { isPaid: false, ...bill, id: createRecordId('bill') };
     const updated = [newBill, ...(billsRef.current || [])];
     pendingCreatedBillIdsRef.current.add(newBill.id);
     setBills(updated);

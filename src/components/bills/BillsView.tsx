@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { 
+  X,
   CalendarCheck, 
   Plus, 
   Check, 
