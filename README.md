@@ -1,105 +1,100 @@
-# NuPra Finance 💑💰
-> **Simple, Smart, and Transparent Finance Tracking for Couples & Individuals**  
-> *Mobile App & APK (`NuPra Finance.apk`) with Decoupled Cloud Synchronization*
+# NuPra Finance
+> **Collaborative & Individual Finance Tracking for Couples and Partners**  
+> *Mobile App & APK (`NuPra Finance.apk`) with Real-Time Decoupled Cloud Synchronization*
 
 ---
 
-## ✨ Overview
-
-**NuPra Finance** is a modern collaborative finance mobile application tailored for couples to manage joint and personal finances with complete transparency, real-time live synchronization, stock portfolio tracking, financial goal deficit tracking, bill management, and automated Android APK generation.
-
-### 🌟 Key Highlights
-
-1. **Collaborative & Personal Modes**:
-   - Seamlessly toggle between **Together (Combined)**, **Nu (Personal)**, and **Pra (Personal)** views.
-   - See who logged each transaction with personalized partner avatars and attribution chips.
-2. **Supabase Cloud Sync**:
-   - Financial transactions, stock market contributions, goals, and bills are decoupled from Git code.
-   - Supabase Realtime plus polling synchronizes the couple vault across devices.
-   - Postgres Row Level Security restricts profiles and finance data to the two vault members.
-3. **Email OTP & Partner Linking**:
-   - Supabase Auth verifies each partner's email with a one-time code.
-   - Invitations are bound to the invited email; a vault accepts at most two accounts.
-   - Both partner profiles and photos are stored in the protected vault workspace.
-4. **Income & Expense Tracking**:
-   - Quick logging with instant amount chips.
-   - Default color-coded labels: **Salary, Rent, Food, Leisure, Travel, Health, Hobby** + custom label builder with color picker and icons.
-   - Payment methods: **Credit Card, UPI / Pix, Bank Transfer, Cash, Debit Card, Crypto**.
-5. **Finance Goals with Deficit Analytics**:
-   - Set targets for dream vacations, home down payments, and weddings.
-   - Live calculation of **"Amount needed more to achieve goal"**.
-   - One-tap deposit with confetti celebration upon milestone achievement!
-6. **Stock Market Investment Section**:
-   - Log monthly equity purchases (Asset name, ticker, shares, amount, purchaser).
-   - Shows **how much investment was done that month by both partners** (Nu vs Pra vs Combined).
-   - Shows **all-time individual stock market capital** invested.
-7. **Bill & Payment Tracking**:
-   - Manage upcoming, unpaid, and paid bills with due date countdowns.
-   - One-tap **"Pay"** button that automatically logs the expense to your ledger!
-8. **Interactive Visual Statistics**:
-   - **Individual saving vs Together saving** comparison plots.
-   - **Individual vs Together expenses** on monthly and yearly basis.
-   - **Goal Deficit chart** comparing saved vs amount needed more.
-   - **Stock market individual capital distribution** pie/split charts.
-   - **Category spending breakdown** interactive donut chart.
-9. **Multi-Currency**:
-   - Instant toggle between Indian Rupee (**₹ INR**) and Euro (**€ EUR**).
+## Technical Documentation
+For complete database schemas, entity relationship diagrams, backend synchronization engines, UI component architecture, and functional specifications, refer to:
+- **[Technical Implementation & Architecture Guide](TECHNICAL_IMPLEMENTATION.md)**
 
 ---
 
-## 📱 Android APK & Git Setup
+## Overview
+
+NuPra Finance is a collaborative personal and couple finance mobile application designed to manage joint and personal ledgers with complete transparency, real-time live synchronization, stock portfolio tracking, financial goal deficit analysis, Splitwise-style bill management, and automated Android APK generation.
+
+### Key Capabilities
+
+1. **Collaborative and Personal Modes**:
+   - Toggle between **Together (Combined)**, **Nu (Personal)**, and **Pra (Personal)** views.
+   - Distinct partner avatars and attribution indicators on every entry.
+2. **Mutual Read-Only Protection with Active Review**:
+   - Partner transactions are strictly read-only: neither partner can modify or delete the other's entries.
+   - 1-tap flagging for review and discussion (`Flagged for Discussion`).
+   - Integrated inline activity drawer with real-time comment threads.
+3. **On-The-Fly Category Creation**:
+   - Create and assign custom categories directly from the transaction recording screen.
+   - Automatic keyword-based icon mapping and color assignment.
+   - Persistent union synchronization ensuring custom labels are never lost across devices.
+4. **Supabase Real-Time Cloud Sync**:
+   - Sub-30ms WebSocket broadcast synchronizes entries between partner devices instantly.
+   - PostgreSQL Row Level Security (RLS) ensures ledger data is isolated strictly to the two vault members.
+5. **Email OTP and Partner Linking**:
+   - Supabase Auth verifies each partner's email using a 6-digit one-time code.
+   - Invites are bound to the invited email; vaults strictly enforce a two-member limit.
+6. **Income and Expense Tracking**:
+   - Fast logging with quick amount presets.
+   - Color-coded default categories (Salary, Rent, Food, Leisure, Travel, Health, Hobby, Groceries, Utilities, Investment) plus on-the-fly custom labels.
+   - Payment method logging: Credit Card, UPI / Pix, Bank Transfer, Cash, Debit Card, Crypto.
+7. **Financial Goals with Deficit Analytics**:
+   - Milestone tracking with live calculation of remaining deficit to target.
+   - One-tap deposits with celebration confetti upon goal completion.
+   - Goal assignment to Me, Partner, or Both.
+8. **Stock Market Portfolio Tracking**:
+   - Monthly equity purchase logs (asset name, ticker, shares, amount, purchaser).
+   - Monthly and all-time capital contribution breakdowns by partner.
+9. **Splitwise Bill Management**:
+   - Track upcoming, unpaid, and paid bills with due date countdowns.
+   - Four split modes: Equal (50/50), Partner Owes Me, I Owe Partner, and Personal.
+   - One-tap "Pay" action that transitions status and posts the expense directly to the ledger.
+10. **Visual Analytics and Reporting**:
+    - Individual savings vs joint savings comparison.
+    - Monthly and yearly expense trends.
+    - Interactive category spending breakdown donut chart.
+    - Deficit analytics and stock market capital distribution.
+11. **Multi-Currency Support**:
+    - Toggle between Indian Rupee (**INR - ₹**) and Euro (**EUR - €**).
+
+---
+
+## Android APK and CI/CD Setup
 
 ### Automated Cloud APK Build via GitHub Actions
-Whenever you push changes to your GitHub repository, the `.github/workflows/build-apk.yml` workflow will automatically build `NuPra Finance.apk`.
+Whenever changes are pushed to `main` or `NuPra_nupur_version`, the `.github/workflows/build-apk.yml` workflow automatically compiles and publishes `NuPra Finance.apk`.
 
-You can install it on your mobile phone in two ways:
-1. **Direct Mobile Release Download**: Go to [GitHub Releases](https://github.com/Prathmatic/NuPra_Finance/releases) and tap **`NuPra Finance.apk`** to download & install directly.
-2. **Workflow Artifacts**: Go to [GitHub Actions](https://github.com/Prathmatic/NuPra_Finance/actions), tap the latest run of **Build NuPra Finance APK**, and download the **`NuPra-Finance-APK`** artifact zip file.
+Install on Android devices via:
+1. **GitHub Releases**: Download directly from [GitHub Releases](https://github.com/Prathmatic/NuPra_Finance/releases).
+2. **Workflow Artifacts**: Download the `NuPra-Finance-APK` zip file from [GitHub Actions](https://github.com/Prathmatic/NuPra_Finance/actions).
 
 ### Local Development
 ```bash
 # Install dependencies
 npm install
 
-# Configure Supabase (see below)
+# Configure Supabase
 Copy-Item .env.example .env.local
 
-# Start local mobile dev server
+# Start local dev server
 npm run dev
 
-# Build production assets and sync Android
+# Build production bundle and sync Capacitor Android
 npm run cap:build
 ```
 
 ### Supabase Setup
 1. Create a Supabase project.
-2. Open **SQL Editor** and run [`supabase/migrations/20260925000100_couple_finance.sql`](supabase/migrations/20260925000100_couple_finance.sql). It creates the tables, two-member limits, invite RPCs, RLS policies, and Realtime publication.
-3. In **Authentication → Providers → Email**, enable email sign-in.
-   - **Magic Link Template**: Under **Authentication → Email Templates → Magic Link**, set the email body to include `{{ .Token }}` instead of `{{ .ConfirmationURL }}` so Supabase delivers a 6-digit verification code.
-   - **Custom SMTP**: In **Project Settings → Authentication → SMTP Settings** (or **Authentication → Email Settings**), toggle **Enable Custom SMTP** ON. Use a provider such as Resend (`smtp.resend.com`, port 465/587), Brevo, SendGrid, or AWS SES to bypass Supabase's built-in testing rate limits (3-4 emails/hour).
-4. Copy the Project URL and anon/publishable key from **Project Settings → API** into `.env.local` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-5. Restart Vite after changing environment variables. GitHub Actions uses repository variables when set; otherwise it reads these two public values from `.env.example` for the APK build.
-
-The browser uses only the publishable anon key. **Never put a Supabase `service_role` or secret key in `.env.local` or the app.** Database RLS enforces access; do not disable it on the migration's tables.
-
-### Git Workflow
-```bash
-# 1. Add your changes
-git add .
-
-# 2. Commit
-git commit -m "Update NuPra Finance app"
-
-# 3. Push to trigger automated Cloud APK build
-git push origin main
-```
-*Financial records start empty and sync only after a verified account has joined or created a Supabase couple vault.*
+2. In the **SQL Editor**, execute [`supabase/migrations/20260925000100_couple_finance.sql`](supabase/migrations/20260925000100_couple_finance.sql).
+3. In **Authentication -> Providers -> Email**, enable email login.
+   - **Magic Link Template**: Set body to include `{{ .Token }}` for 6-digit OTP delivery.
+   - **Custom SMTP**: Configure custom SMTP (e.g. Resend, Brevo, AWS SES) under **SMTP Settings** to bypass default rate limits.
+4. Copy `Project URL` and `anon public key` from **Project Settings -> API** into `.env.local` as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 
 ---
 
-## 🎨 Theme & Palette
-- **Velvet Rose**: `#E11D48` & `#F43F5E` (Romance, Warmth, Focus)
-- **Midnight Slate**: `#0B0F19` & `#0F172A` (Luxury, Contrast)
-- **Warm Emerald**: `#10B981` (Growth, Positive Cash Flow)
-- **Indigo / Sapphire**: `#6366F1` & `#3B82F6` (Trust, Investments)
-- **Champagne Gold**: `#F59E0B` (Goals & Achievements)
+## Design System Tokens
+- **Velvet Rose**: `#E11D48` & `#F43F5E` (Focus, Highlights)
+- **Midnight Slate**: `#0B0F19` & `#0F172A` (Background, Contrast)
+- **Emerald**: `#10B981` (Income, Positive Cash Flow)
+- **Indigo / Sapphire**: `#6366F1` & `#3B82F6` (Investments, Primary Actions)
+- **Amber**: `#F59E0B` (Goals, Flagged Expenses)
