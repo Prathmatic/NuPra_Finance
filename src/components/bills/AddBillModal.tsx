@@ -212,7 +212,6 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                 type="button"
                 onClick={() => {
                   setSplitOption('partner_owes_me');
-                  if (paidStatus === 'paid_by_partner') setPaidStatus('paid_by_me');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition-all ${
                   splitOption === 'partner_owes_me'
@@ -233,7 +232,7 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                 type="button"
                 onClick={() => {
                   setSplitOption('i_owe_partner');
-                  if (paidStatus === 'paid_by_me') setPaidStatus('paid_by_partner');
+                  if (paidStatus === 'paid_by_me') setPaidStatus('unpaid');
                 }}
                 className={`p-2.5 rounded-2xl border text-left transition-all ${
                   splitOption === 'i_owe_partner'
@@ -278,11 +277,6 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                 {splitOption === 'equal' && paidStatus === 'paid_by_me' && (
                   <span>
                     You paid full. <strong className="text-emerald-400 font-bold">{partnerName} will owe you {formatCurrency(parsedAmount / 2, currency)}</strong>.
-                  </span>
-                )}
-                {splitOption === 'equal' && paidStatus === 'paid_by_partner' && (
-                  <span>
-                    {partnerName} paid full. <strong className="text-amber-400 font-bold">You will owe {partnerName} {formatCurrency(parsedAmount / 2, currency)}</strong>.
                   </span>
                 )}
                 {splitOption === 'equal' && paidStatus === 'unpaid' && (
