@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { X, Check, PiggyBank, User, Users } from 'lucide-react';
+import { X, Check, PiggyBank, User, Users, Lock } from 'lucide-react';
 import { getCurrencySymbol } from '../../utils/formatters';
 
 interface BudgetSettingsModalProps {
@@ -32,12 +32,11 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
     e.preventDefault();
     const cVal = Math.max(0, parseFloat(coupleBudget) || 0);
     const mVal = Math.max(0, parseFloat(myBudget) || 0);
-    const pVal = Math.max(0, parseFloat(partnerBudget) || 0);
 
     updateBudgets({
       couple: cVal,
       me: mVal,
-      partner: pVal,
+      partner: budgets.partner || 0,
     });
 
     onClose();
@@ -122,31 +121,33 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
             </p>
           </div>
 
-          {/* Partner's Individual Monthly Budget */}
+          {/* Partner's Individual Monthly Budget (Read-only) */}
           {partner && (
             <div>
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <User className="w-3.5 h-3.5 text-purple-400" />
-                <label className="text-xs font-bold text-white">
-                  {partner.name}'s Individual Budget (Partner)
-                </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-purple-400" />
+                  <label className="text-xs font-bold text-white">
+                    {partner.name}'s Individual Budget
+                  </label>
+                </div>
+                <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Set by {partner.name}
+                </span>
               </div>
-              <div className="relative flex items-center">
+              <div className="relative flex items-center opacity-60">
                 <span className="absolute left-3.5 text-sm font-bold text-slate-400">
                   {currencySymbol}
                 </span>
                 <input
                   type="number"
-                  step="any"
-                  min="0"
+                  disabled
                   value={partnerBudget}
-                  onChange={(e) => setPartnerBudget(e.target.value)}
-                  placeholder="0"
-                  className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-800/80 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-purple-500 transition-all placeholder:text-slate-600"
+                  className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-900 border border-white/5 text-slate-300 font-bold text-sm cursor-not-allowed"
                 />
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Personal spending limit for your partner.
+              <p className="text-[10px] text-slate-500 mt-1">
+                Personal spending limit can only be configured by {partner.name}.
               </p>
             </div>
           )}

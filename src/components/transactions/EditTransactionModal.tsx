@@ -48,7 +48,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [amount, setAmount] = useState('');
   const [selectedCatId, setSelectedCatId] = useState('cat-food');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('None');
-  const [paidByUserId, setPaidByUserId] = useState('');
   const [isShared, setIsShared] = useState(true);
   const [date, setDate] = useState('');
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -60,7 +59,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       setAmount(transaction.amount.toString());
       setSelectedCatId(transaction.categoryId);
       setPaymentMethod(transaction.paymentMethod || 'None');
-      setPaidByUserId(transaction.userId);
       setIsShared(transaction.isShared);
       setDate(transaction.date);
       setShowConfirmDelete(false);
@@ -68,6 +66,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   }, [transaction]);
 
   if (!isOpen || !transaction || !currentUser) return null;
+  // Safety guard: Cannot edit partner's transaction
+  if (transaction.userId !== currentUser.id) return null;
 
   const currentCategories = categories.filter(
     c => c.type === 'both' || c.type === type
@@ -80,11 +80,11 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (transaction.userId !== currentUser.id) return;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
 
     const finalTitle = title.trim() || selectedCategory.name;
-    const paidByUser = (partner && paidByUserId === partner.id) ? partner : currentUser;
 
     updateTransaction({
       ...transaction,
@@ -97,9 +97,9 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       categoryIcon: selectedCategory.icon,
       paymentMethod: paymentMethod === 'None' ? undefined : paymentMethod,
       date: date || transaction.date,
-      userId: paidByUser.id,
-      userName: paidByUser.name,
-      userAvatar: paidByUser.avatarUrl?.startsWith('data:') ? undefined : paidByUser.avatarUrl,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: currentUser.avatarUrl?.startsWith('data:') ? undefined : currentUser.avatarUrl,
       isShared,
     });
 
@@ -107,6 +107,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   };
 
   const handleDelete = () => {
+    if (transaction.userId !== currentUser.id) return;
     deleteTransaction(transaction.id);
     onClose();
   };
@@ -206,54 +207,22 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             label="Category Label"
           />
 
-          {/* Who Paid / Received */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              {type === 'expense' ? 'Who Paid?' : 'Received By:'}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setPaidByUserId(currentUser.id)}
-                className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${
-                  paidByUserId === currentUser.id
-                    ? 'border-indigo-500 bg-indigo-500/15 text-white'
-                    : 'border-white/5 bg-slate-800/60 text-slate-400 hover:bg-slate-800'
-                }`}
-              >
-                <img
-                  src={currentUser.avatarUrl}
-                  alt={currentUser.name}
-                  className="w-7 h-7 rounded-full object-cover ring-2 ring-indigo-500 shrink-0"
-                />
-                <div className="text-left truncate">
-                  <p className="text-xs font-bold truncate">{currentUser.name} (Me)</p>
-                  <p className="text-[10px] text-slate-400">Payer</p>
-                </div>
-              </button>
-
-              {partner && (
-                <button
-                  type="button"
-                  onClick={() => setPaidByUserId(partner.id)}
-                  className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${
-                    paidByUserId === partner.id
-                      ? 'border-indigo-500 bg-indigo-500/15 text-white'
-                      : 'border-white/5 bg-slate-800/60 text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <img
-                    src={partner.avatarUrl}
-                    alt={partner.name}
-                    className="w-7 h-7 rounded-full object-cover ring-2 ring-indigo-500 shrink-0"
-                  />
-                  <div className="text-left truncate">
-                    <p className="text-xs font-bold truncate">{partner.name}</p>
-                    <p className="text-[10px] text-slate-400">Partner</p>
-                  </div>
-                </button>
-              )}
+          {/* Payer Display */}
+          <div className="p-3 rounded-2xl bg-slate-800/60 border border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <img
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-indigo-500 shrink-0"
+              />
+              <div>
+                <p className="text-xs font-bold text-white">{currentUser.name} (You)</p>
+                <p className="text-[10px] text-slate-400">Payer / Owner</p>
+              </div>
             </div>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              Your Transaction
+            </span>
           </div>
 
           {/* Payment Method & Date */}

@@ -24,7 +24,6 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
   const [ticker, setTicker] = useState('');
   const [investedAmount, setInvestedAmount] = useState('');
   const [shares, setShares] = useState('');
-  const [investorId, setInvestorId] = useState(currentUser?.id ?? '');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
 
@@ -35,7 +34,6 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
     const amountNum = parseFloat(investedAmount);
     if (!assetName.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
-    const investor = (partner && investorId === partner.id) ? partner : currentUser;
     const monthYear = date.slice(0, 7); // "YYYY-MM"
 
     addStock({
@@ -45,9 +43,9 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
       shares: shares ? parseFloat(shares) : undefined,
       monthYear,
       date,
-      userId: investor.id,
-      userName: investor.name,
-      userAvatar: investor.avatarUrl?.startsWith('data:') ? undefined : investor.avatarUrl,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: currentUser.avatarUrl?.startsWith('data:') ? undefined : currentUser.avatarUrl,
       notes: notes.trim() || undefined,
     });
 
@@ -156,37 +154,22 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Who Made This Investment?</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setInvestorId(currentUser!.id)}
-                className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
-                  investorId === currentUser!.id
-                    ? 'border-indigo-500 bg-indigo-500/20 text-white'
-                    : 'border-white/5 bg-slate-800/60 text-slate-400'
-                }`}
-              >
-                <img src={currentUser!.avatarUrl} alt="Me" className="w-6 h-6 rounded-full object-cover" />
-                <span className="text-xs font-semibold">{currentUser!.name} (Me)</span>
-              </button>
-
-              {partner && (
-                <button
-                  type="button"
-                  onClick={() => setInvestorId(partner.id)}
-                  className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
-                    investorId === partner.id
-                      ? 'border-indigo-500 bg-indigo-500/20 text-white'
-                      : 'border-white/5 bg-slate-800/60 text-slate-400'
-                  }`}
-                >
-                  <img src={partner.avatarUrl} alt="Partner" className="w-6 h-6 rounded-full object-cover" />
-                  <span className="text-xs font-semibold">{partner.name}</span>
-                </button>
-              )}
+          {/* Who Made This Investment (Logged as currentUser) */}
+          <div className="p-3 rounded-2xl bg-slate-800/60 border border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <img
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-indigo-500 shrink-0"
+              />
+              <div>
+                <p className="text-xs font-bold text-white">{currentUser.name} (You)</p>
+                <p className="text-[10px] text-slate-400">Logging under your equity portfolio</p>
+              </div>
             </div>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              Logged as You
+            </span>
           </div>
 
           <div>

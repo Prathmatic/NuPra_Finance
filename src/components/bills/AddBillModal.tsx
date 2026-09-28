@@ -27,7 +27,7 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
   const [recurring, setRecurring] = useState<'none' | 'monthly' | 'yearly'>('monthly');
 
   // Splitwise options
-  const [paidStatus, setPaidStatus] = useState<'unpaid' | 'paid_by_me' | 'paid_by_partner'>('unpaid');
+  const [paidStatus, setPaidStatus] = useState<'unpaid' | 'paid_by_me'>('unpaid');
   const [splitOption, setSplitOption] = useState<'equal' | 'partner_owes_me' | 'i_owe_partner' | 'personal'>('equal');
 
   if (!isOpen) return null;
@@ -38,17 +38,13 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
     e.preventDefault();
     if (!title.trim() || parsedAmount <= 0) return;
 
-    const isPaid = paidStatus !== 'unpaid';
-    const payerId = paidStatus === 'paid_by_me' 
+    const isPaid = paidStatus === 'paid_by_me';
+    const payerId = isPaid 
       ? currentUser?.id 
-      : paidStatus === 'paid_by_partner' 
-      ? (partner?.id || 'partner') 
       : (splitOption === 'partner_owes_me' ? currentUser?.id : splitOption === 'i_owe_partner' ? (partner?.id || 'partner') : undefined);
 
-    const payerName = paidStatus === 'paid_by_me' 
+    const payerName = isPaid 
       ? currentUser?.name 
-      : paidStatus === 'paid_by_partner' 
-      ? (partner?.name || 'Partner') 
       : (splitOption === 'partner_owes_me' ? currentUser?.name : splitOption === 'i_owe_partner' ? (partner?.name || 'Partner') : undefined);
 
     let splitType: 'equal' | 'full_debt' | 'personal' = 'equal';
@@ -154,7 +150,7 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
               Payment Status (Who Paid?)
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setPaidStatus('unpaid')}
@@ -182,25 +178,8 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                 }`}
               >
                 <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <span className="truncate max-w-[90px]">Paid by {myName}</span>
+                <span className="truncate max-w-[120px]">Paid by {myName}</span>
                 <span className="text-[10px] text-slate-400">I paid full</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPaidStatus('paid_by_partner');
-                  if (splitOption === 'partner_owes_me') setSplitOption('equal');
-                }}
-                className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-all ${
-                  paidStatus === 'paid_by_partner'
-                    ? 'bg-purple-500/20 border-purple-500 text-white ring-1 ring-purple-500/50'
-                    : 'bg-slate-800/60 border-white/5 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <CheckCircle className="w-4 h-4 text-purple-400" />
-                <span className="truncate max-w-[90px]">Paid by {partnerName}</span>
-                <span className="text-[10px] text-slate-400">Partner paid</span>
               </button>
             </div>
           </div>

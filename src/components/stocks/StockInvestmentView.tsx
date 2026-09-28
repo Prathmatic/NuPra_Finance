@@ -260,13 +260,15 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => deleteStock(stock.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
-                    title="Remove stock entry"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {stock.userId === currentUser?.id && (
+                    <button
+                      onClick={() => deleteStock(stock.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
+                      title="Remove stock entry"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

@@ -38,7 +38,6 @@ export const BillsView: React.FC = () => {
   const [tab, setTab] = useState<'all' | 'unpaid' | 'paid' | 'debts'>('all');
   const [isAddBillOpen, setIsAddBillOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
-  const [payingBill, setPayingBill] = useState<BillItem | null>(null);
 
   // Splitwise Net Calculations
   const splitwiseSummary = useMemo(() => {
@@ -69,11 +68,6 @@ export const BillsView: React.FC = () => {
 
   const partnerName = partner?.name || 'Partner';
   const myName = currentUser?.name || 'You';
-
-  const handleConfirmPay = (billId: string, payerId: string, payerName: string) => {
-    markBillAsPaid(billId, payerId, payerName);
-    setPayingBill(null);
-  };
 
   return (
     <div className="space-y-4 pb-20 animate-in fade-in duration-300">
@@ -363,17 +357,15 @@ export const BillsView: React.FC = () => {
 
                   {/* Actions for this bill */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {/* If unpaid, allow paying */}
+                    {/* If unpaid, allow paying as currentUser */}
                     {!b.isPaid && (
                       <button
-                        onClick={() => {
-                          if (partner) setPayingBill(b);
-                          else markBillAsPaid(b.id);
-                        }}
+                        onClick={() => markBillAsPaid(b.id, currentUser!.id, currentUser!.name)}
                         className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1"
+                        title="Mark as paid by you"
                       >
                         <Check className="w-3 h-3" />
-                        <span>Pay</span>
+                        <span>I Paid</span>
                       </button>
                     )}
 
@@ -393,51 +385,6 @@ export const BillsView: React.FC = () => {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Pay Bill Modal (Who paid picker) */}
-      {payingBill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-sm glass-panel bg-slate-900 border border-white/15 rounded-3xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-white/10">
-              <div>
-                <h3 className="text-sm font-bold text-white">Who paid this bill?</h3>
-                <p className="text-xs text-orange-400 font-semibold">{payingBill.title}</p>
-              </div>
-              <button onClick={() => setPayingBill(null)} className="p-1 rounded-lg text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <button
-                onClick={() => handleConfirmPay(payingBill.id, currentUser!.id, currentUser!.name)}
-                className="w-full p-3 rounded-2xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-left transition-all flex items-center justify-between"
-              >
-                <div>
-                  <p className="text-xs font-bold text-white">I Paid ({myName})</p>
-                  <p className="text-[10px] text-slate-300">
-                    Paid {formatCurrency(payingBill.amount, currency)}
-                  </p>
-                </div>
-                <Check className="w-4 h-4 text-emerald-400" />
-              </button>
-
-              <button
-                onClick={() => handleConfirmPay(payingBill.id, partner!.id, partner!.name)}
-                className="w-full p-3 rounded-2xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-left transition-all flex items-center justify-between"
-              >
-                <div>
-                  <p className="text-xs font-bold text-white">{partnerName} Paid</p>
-                  <p className="text-[10px] text-slate-300">
-                    Paid {formatCurrency(payingBill.amount, currency)}
-                  </p>
-                </div>
-                <Check className="w-4 h-4 text-purple-400" />
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

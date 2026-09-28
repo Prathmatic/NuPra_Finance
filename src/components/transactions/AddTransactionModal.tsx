@@ -42,7 +42,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
   const [amount, setAmount] = useState('');
   const [selectedCatId, setSelectedCatId] = useState('cat-food');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('None');
-  const [paidByUserId, setPaidByUserId] = useState(currentUser?.id ?? '');
   const [isShared, setIsShared] = useState(true);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [errorMessage, setErrorMessage] = useState('');
@@ -55,7 +54,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       setTitle('');
       setDate(new Date().toISOString().split('T')[0]);
       setPaymentMethod('None');
-      setPaidByUserId(currentUser?.id ?? '');
       setSelectedCatId(type === 'expense' ? 'cat-food' : 'cat-salary');
     }
   }, [isOpen, currentUser, type]);
@@ -69,7 +67,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
   const selectedCategory = currentCategories.find(c => c.id === selectedCatId) 
     || (categories || []).find(c => c.id === selectedCatId) 
     || currentCategories[0] 
-    || (categories || [])[0]
+    || (categories || [])[0] 
     || { id: 'cat-general', name: 'General', color: '#6366f1', icon: 'Tag', type: 'both' };
 
   const handleQuickAddAmount = (addValue: number) => {
@@ -89,7 +87,6 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
 
     // Additional Description is completely optional: defaults to selected category name
     const finalTitle = title.trim() || selectedCategory.name;
-    const paidByUser = (partner && paidByUserId === partner.id) ? partner : currentUser;
 
     addTransaction({
       title: finalTitle,
@@ -101,9 +98,9 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       categoryIcon: selectedCategory.icon,
       paymentMethod: paymentMethod === 'None' ? undefined : paymentMethod,
       date: date || new Date().toISOString().split('T')[0],
-      userId: paidByUser.id,
-      userName: paidByUser.name,
-      userAvatar: paidByUser.avatarUrl?.startsWith('data:') ? undefined : paidByUser.avatarUrl,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: currentUser.avatarUrl?.startsWith('data:') ? undefined : currentUser.avatarUrl,
       isShared,
     });
 
@@ -263,54 +260,24 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
             label="Category Label"
           />
 
-          {/* Who Paid / Received */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              {type === 'expense' ? 'Who Paid?' : 'Received By:'}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setPaidByUserId(currentUser.id)}
-                className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${
-                  paidByUserId === currentUser.id
-                    ? 'border-rose-500 bg-rose-500/15 text-white'
-                    : 'border-white/5 bg-slate-800/60 text-slate-400 hover:bg-slate-800'
-                }`}
-              >
-                <img
-                  src={currentUser.avatarUrl}
-                  alt={currentUser.name}
-                  className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-500 shrink-0"
-                />
-                <div className="text-left truncate">
-                  <p className="text-xs font-bold truncate">{currentUser.name} (Me)</p>
-                  <p className="text-[10px] text-slate-400">Payer</p>
-                </div>
-              </button>
-
-              {partner && (
-                <button
-                  type="button"
-                  onClick={() => setPaidByUserId(partner.id)}
-                  className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${
-                    paidByUserId === partner.id
-                      ? 'border-indigo-500 bg-indigo-500/15 text-white'
-                      : 'border-white/5 bg-slate-800/60 text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <img
-                    src={partner.avatarUrl}
-                    alt={partner.name}
-                    className="w-7 h-7 rounded-full object-cover ring-2 ring-indigo-500 shrink-0"
-                  />
-                  <div className="text-left truncate">
-                    <p className="text-xs font-bold truncate">{partner.name}</p>
-                    <p className="text-[10px] text-slate-400">Partner</p>
-                  </div>
-                </button>
-              )}
+          {/* Payer Indicator (Always recorded by logged-in user) */}
+          <div className="p-3 rounded-2xl bg-slate-800/60 border border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <img
+                src={currentUser.avatarUrl}
+                alt={currentUser.name}
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-emerald-500 shrink-0"
+              />
+              <div>
+                <p className="text-xs font-bold text-white">{currentUser.name} (You)</p>
+                <p className="text-[10px] text-slate-400">
+                  {type === 'expense' ? 'Recording as your expense' : 'Recording as your income'}
+                </p>
+              </div>
             </div>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Logged as You
+            </span>
           </div>
 
           {/* Payment Method (Optional) & Date */}

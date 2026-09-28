@@ -7,7 +7,8 @@ import {
   Edit2,
   Plus,
   X,
-  FileText
+  FileText,
+  Lock
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
@@ -266,12 +267,16 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
         </div>
       ) : (
         <div className="space-y-2">
-          {filteredList.map((tx) => (
+          {filteredList.map((tx) => {
+            const isMyTx = tx.userId === currentUser?.id;
+            return (
             <div
               key={tx.id}
-              onClick={() => setEditingTx(tx)}
-              className="glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/15 cursor-pointer transition-all group"
-              title="Click to edit this transaction"
+              onClick={() => { if (isMyTx) setEditingTx(tx); }}
+              className={`glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/15 transition-all group ${
+                isMyTx ? 'cursor-pointer' : 'cursor-default'
+              }`}
+              title={isMyTx ? "Click to edit this transaction" : `Recorded by ${tx.userName} (Read-only)`}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div
@@ -317,34 +322,41 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingTx(tx);
-                    }}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
-                    title="Edit transaction"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
+                {isMyTx ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingTx(tx);
+                      }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                      title="Edit transaction"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteTransaction(tx.id);
-                    }}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100"
-                    title="Delete transaction"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTransaction(tx.id);
+                      }}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100"
+                      title="Delete transaction"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-1.5 text-slate-600" title={`Recorded by ${tx.userName} (Read-only)`}>
+                    <Lock className="w-3.5 h-3.5" />
+                  </div>
+                )}
               </div>
             </div>
-          ))}
+          );
+        })}
         </div>
       )}
 

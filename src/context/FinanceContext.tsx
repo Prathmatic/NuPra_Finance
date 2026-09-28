@@ -659,16 +659,23 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   /* ─── Budgets ─────────────────────────────────────────────────────────── */
   const updateBudgets = useCallback((newBudgets: BudgetsConfig) => {
-    setBudgets(newBudgets);
-    budgetsRef.current = newBudgets;
-    CloudStore.saveBudgets(newBudgets);
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0 };
+    // Preserve partner's budget; user can only adjust couple and their own personal budget
+    const safeBudgets: BudgetsConfig = {
+      couple: newBudgets.couple ?? activeBudgets.couple,
+      me: newBudgets.me ?? activeBudgets.me,
+      partner: activeBudgets.partner ?? 0,
+    };
+    setBudgets(safeBudgets);
+    budgetsRef.current = safeBudgets;
+    CloudStore.saveBudgets(safeBudgets);
     const activeVault = vaultRef.current || CloudStore.getVault();
     if (activeVault) {
       const updatedVault: CoupleVault = {
         ...activeVault,
-        monthlyBudget: newBudgets.couple,
-        myBudget: newBudgets.me,
-        partnerBudget: newBudgets.partner,
+        monthlyBudget: safeBudgets.couple,
+        myBudget: safeBudgets.me,
+        partnerBudget: safeBudgets.partner,
       };
       setVault(updatedVault);
       vaultRef.current = updatedVault;
@@ -676,18 +683,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ budgets: newBudgets });
+    void pushToCloud({ budgets: safeBudgets });
     showToast('Monthly budgets saved successfully', 'success');
   }, [triggerSyncFlash, pushToCloud, showToast]);
 
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
+    if (!currentUser) return;
     try {
       const now = new Date().toISOString();
       const newTxDate = tx.date || now.split('T')[0];
+      // Always enforce currentUser as creator/payer
       const newTx: Transaction = { 
         ...tx, 
-        userAvatar: (tx.userAvatar && !tx.userAvatar.startsWith('data:')) ? tx.userAvatar : undefined,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
         id: createRecordId('tx'), 
         date: newTxDate,
         createdAt: now 
@@ -706,7 +717,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
 
       // 3. If current view is filtered to partner only, switch to 'both' so the new expense is visible
-      if (viewMode === 'partner' && currentUser && newTx.userId === currentUser.id) {
+      if (viewMode === 'partner') {
         setViewMode('both');
       }
 
@@ -730,10 +741,19 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const updateTransaction = (updatedTx: Transaction) => {
+    if (!currentUser) return;
+    const existing = (transactionsRef.current || []).find(t => t.id === updatedTx.id);
+    if (existing && existing.userId !== currentUser.id) {
+      showToast('You cannot modify transactions created by your partner', 'error');
+      return;
+    }
+
     try {
       const cleanUpdatedTx: Transaction = {
         ...updatedTx,
-        userAvatar: (updatedTx.userAvatar && !updatedTx.userAvatar.startsWith('data:')) ? updatedTx.userAvatar : undefined,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
       };
       const safeTxs = (transactionsRef.current || []).filter(Boolean);
       const updated = sortTransactionsDesc(
@@ -753,6 +773,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteTransaction = (id: string) => {
+    if (!currentUser) return;
+    const existing = (transactionsRef.current || []).find(t => t.id === id);
+    if (existing && existing.userId !== currentUser.id) {
+      showToast('You cannot delete transactions created by your partner', 'error');
+      return;
+    }
+
     pendingCreatedTxIdsRef.current.delete(id);
     deletedTxIdsRef.current.add(id);
     const updated = (transactionsRef.current || []).filter(t => t.id !== id);
@@ -836,6 +863,18 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteGoal = (id: string) => {
+    if (!currentUser) return;
+    const existing = (goalsRef.current || []).find(g => g.id === id);
+    if (
+      existing && 
+      existing.assignedUserId && 
+      existing.assignedUserId !== currentUser.id && 
+      !existing.isShared
+    ) {
+      showToast("You cannot delete your partner's personal goal", 'error');
+      return;
+    }
+
     pendingCreatedGoalIdsRef.current.delete(id);
     deletedGoalIdsRef.current.add(id);
     const updated = (goalsRef.current || []).filter(g => g.id !== id);
@@ -850,7 +889,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   /* ─── Stocks ──────────────────────────────────────────────────────────── */
   const addStock = (stock: Omit<StockInvestment, 'id'>) => {
-    const newStock: StockInvestment = { ...stock, id: createRecordId('stk') };
+    if (!currentUser) return;
+    const newStock: StockInvestment = { 
+      ...stock, 
+      id: createRecordId('stk'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+    };
     const updatedStocks = [newStock, ...(stocksRef.current || [])];
     const transaction: Transaction = {
       id: createRecordId('tx'),
@@ -860,10 +906,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       categoryColor: '#3B82F6', categoryIcon: 'TrendingUp',
       paymentMethod: 'Bank Transfer',
       date: newStock.date,
-      userId: newStock.userId, userName: newStock.userName,
-      userAvatar: (newStock.userAvatar && !newStock.userAvatar.startsWith('data:')) ? newStock.userAvatar : undefined,
+      userId: currentUser.id, userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
       isShared: true,
-      notes: newStock.notes || `Stock investment by ${newStock.userName}`,
+      notes: newStock.notes || `Stock investment by ${currentUser.name}`,
       createdAt: new Date().toISOString(),
     };
     pendingCreatedStockIdsRef.current.add(newStock.id);
@@ -882,6 +928,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteStock = (id: string) => {
+    if (!currentUser) return;
+    const existing = (stocksRef.current || []).find(s => s.id === id);
+    if (existing && existing.userId !== currentUser.id) {
+      showToast("You cannot delete your partner's stock investment", 'error');
+      return;
+    }
+
     pendingCreatedStockIdsRef.current.delete(id);
     deletedStockIdsRef.current.add(id);
     const updated = (stocksRef.current || []).filter(s => s.id !== id);
@@ -911,8 +964,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const markBillAsPaid = (billId: string, paidByUserId?: string, paidByUserName?: string) => {
     if (!currentUser) return;
-    const payerId = paidByUserId || currentUser.id;
-    const payerName = paidByUserName || (payerId === currentUser.id ? currentUser.name : (partner?.name || 'Partner'));
+    // Payer is always currentUser when marked as paid from this device
+    const payerId = currentUser.id;
+    const payerName = currentUser.name;
     let paidBill: BillItem | undefined;
     const updatedBills = (billsRef.current || []).map(b => {
       if (b.id !== billId) return b;

@@ -504,12 +504,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredTxs.slice(0, 5).map((tx) => (
+            {filteredTxs.slice(0, 5).map((tx) => {
+              const isMyTx = tx.userId === currentUser?.id;
+              return (
               <div
                 key={tx.id}
-                onClick={() => setEditingTransaction(tx)}
-                className="glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/10 cursor-pointer transition-all group"
-                title="Tap to edit this transaction"
+                onClick={() => { if (isMyTx) setEditingTransaction(tx); }}
+                className={`glass-card p-3 rounded-2xl border border-white/5 flex items-center justify-between hover:bg-slate-800/60 hover:border-white/10 transition-all group ${
+                  isMyTx ? 'cursor-pointer' : 'cursor-default'
+                }`}
+                title={isMyTx ? "Tap to edit this transaction" : `Recorded by ${tx.userName} (Read-only)`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div
@@ -549,12 +553,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-1 rounded-lg text-slate-500 group-hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </div>
+                  {isMyTx && (
+                    <div className="p-1 rounded-lg text-slate-500 group-hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         )}
       </div>

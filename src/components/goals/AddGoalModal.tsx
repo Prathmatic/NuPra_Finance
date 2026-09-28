@@ -26,7 +26,7 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
   const [color, setColor] = useState('#3B82F6');
   const [icon, setIcon] = useState('Target');
   const [notes, setNotes] = useState('');
-  const [assignedTo, setAssignedTo] = useState<'both' | 'me' | 'partner'>('both');
+  const [assignedTo, setAssignedTo] = useState<'both' | 'me'>('both');
 
   if (!isOpen) return null;
 
@@ -42,10 +42,6 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
     if (assignedTo === 'me') {
       assignedUserId = currentUser?.id;
       assignedUserName = currentUser?.name || 'Me';
-      isShared = false;
-    } else if (assignedTo === 'partner') {
-      assignedUserId = partner?.id || 'partner';
-      assignedUserName = partner?.name || 'Partner';
       isShared = false;
     } else {
       assignedUserId = undefined;
@@ -96,12 +92,12 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          {/* Assignment Selector (Both / Me / Partner) */}
+          {/* Assignment Selector (Both / Me) */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
               Assign Goal To
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setAssignedTo('both')}
@@ -115,7 +111,7 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
                   <Users className="w-4 h-4" />
                 </div>
                 <span className="font-bold">Both of Us</span>
-                <span className="text-[10px] text-slate-400">Joint Goal</span>
+                <span className="text-[10px] text-slate-400">Joint Couple Milestone</span>
               </button>
 
               <button
@@ -130,24 +126,8 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
                 <div className={`p-1.5 rounded-xl ${assignedTo === 'me' ? 'bg-blue-500 text-white' : 'bg-white/5 text-slate-400'}`}>
                   <User className="w-4 h-4" />
                 </div>
-                <span className="font-bold truncate max-w-[80px]">{currentUser?.name?.split(' ')[0] || 'Me'}</span>
-                <span className="text-[10px] text-slate-400">Personal</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAssignedTo('partner')}
-                className={`p-2.5 rounded-2xl border text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-all ${
-                  assignedTo === 'partner'
-                    ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10 ring-1 ring-purple-500/50'
-                    : 'bg-slate-800/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                }`}
-              >
-                <div className={`p-1.5 rounded-xl ${assignedTo === 'partner' ? 'bg-purple-500 text-white' : 'bg-white/5 text-slate-400'}`}>
-                  <HeartHandshake className="w-4 h-4" />
-                </div>
-                <span className="font-bold truncate max-w-[80px]">{partner?.name?.split(' ')[0] || 'Partner'}</span>
-                <span className="text-[10px] text-slate-400">{partner ? 'Partner' : 'Partner'}</span>
+                <span className="font-bold truncate max-w-[120px]">{currentUser?.name?.split(' ')[0] || 'Me'}</span>
+                <span className="text-[10px] text-slate-400">Personal Goal</span>
               </button>
             </div>
           </div>

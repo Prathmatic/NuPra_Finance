@@ -343,13 +343,15 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => deleteGoal(goal.id)}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
-                    title="Delete goal"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {(!goal.assignedUserId || goal.assignedUserId === currentUser?.id || goal.isShared) && (
+                    <button
+                      onClick={() => deleteGoal(goal.id)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
+                      title="Delete goal"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Optional Notes */}
