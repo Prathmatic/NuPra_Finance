@@ -250,7 +250,17 @@ export const CloudStore = {
   getCategories(): Category[] {
     try {
       const d = localStorage.getItem(KEYS.CATEGORIES);
-      return d ? JSON.parse(d) : DEFAULT_CATEGORIES;
+      if (!d) return DEFAULT_CATEGORIES;
+      const parsed = JSON.parse(d);
+      if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_CATEGORIES;
+      const map = new Map<string, Category>();
+      DEFAULT_CATEGORIES.forEach(c => map.set(c.id, c));
+      parsed.forEach((c: Category) => {
+        if (c && c.id && c.id !== '__budgets_config__') {
+          map.set(c.id, c);
+        }
+      });
+      return Array.from(map.values());
     } catch { return DEFAULT_CATEGORIES; }
   },
   saveCategories(cats: Category[]) {

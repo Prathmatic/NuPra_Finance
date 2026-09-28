@@ -56,7 +56,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
       setPaymentMethod('None');
       setSelectedCatId(type === 'expense' ? 'cat-food' : 'cat-salary');
     }
-  }, [isOpen, currentUser, type]);
+  }, [isOpen]);
 
   if (!isOpen || !currentUser) return null;
 

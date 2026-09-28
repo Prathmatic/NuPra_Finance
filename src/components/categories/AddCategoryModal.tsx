@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { X, Tag, Plus, Check } from 'lucide-react';
 import { PRESET_CATEGORY_COLORS } from '../../constants/defaultCategories';
@@ -8,6 +8,8 @@ interface AddCategoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreated?: (catId: string) => void;
+  initialName?: string;
+  initialType?: 'expense' | 'income' | 'both';
 }
 
 const AVAILABLE_ICONS = [
@@ -16,12 +18,25 @@ const AVAILABLE_ICONS = [
   'Globe', 'Shield', 'Percent', 'Briefcase', 'Heart'
 ];
 
-export const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ isOpen, onClose, onCreated }) => {
+export const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  onCreated,
+  initialName = '',
+  initialType = 'expense'
+}) => {
   const { addCategory } = useFinance();
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName);
   const [color, setColor] = useState(PRESET_CATEGORY_COLORS[0]);
   const [icon, setIcon] = useState('Tag');
-  const [type, setType] = useState<'expense' | 'income' | 'both'>('expense');
+  const [type, setType] = useState<'expense' | 'income' | 'both'>(initialType);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialName) setName(initialName);
+      if (initialType) setType(initialType);
+    }
+  }, [isOpen, initialName, initialType]);
 
   if (!isOpen) return null;
 
@@ -45,7 +60,7 @@ export const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-md glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl">
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
           <div className="flex items-center gap-2">

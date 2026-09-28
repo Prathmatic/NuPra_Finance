@@ -349,12 +349,17 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
         .eq('vault_id', vaultId);
     }
 
+    const catMap = new Map<string, Category>();
+    DEFAULT_CATEGORIES.forEach(c => catMap.set(c.id, c));
+    cleanCategories.forEach(c => catMap.set(c.id, c));
+    const mergedCategories = Array.from(catMap.values());
+
     snapshot = {
       transactions: cleanTxs,
       goals: (stateRow.goals as FinanceGoal[]) || [],
       stocks: cleanStocks,
       bills: (stateRow.bills as BillItem[]) || [],
-      categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
+      categories: mergedCategories,
       currency: (stateRow.currency as CurrencyCode) || 'INR',
       budgets: parsedBudgets,
     };
@@ -475,12 +480,17 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     return stock;
   });
 
+  const catMap = new Map<string, Category>();
+  DEFAULT_CATEGORIES.forEach(c => catMap.set(c.id, c));
+  cleanCategories.forEach(c => catMap.set(c.id, c));
+  const mergedCategories = Array.from(catMap.values());
+
   return {
     transactions: cleanTxs,
     goals: (data.goals as FinanceGoal[]) || [],
     stocks: cleanStocks,
     bills: (data.bills as BillItem[]) || [],
-    categories: cleanCategories.length ? cleanCategories : DEFAULT_CATEGORIES,
+    categories: mergedCategories,
     currency: (data.currency as CurrencyCode) || 'INR',
     budgets: parsedBudgets,
     updatedAt: (data as any).updated_at ? new Date((data as any).updated_at).getTime() : undefined,
@@ -499,6 +509,14 @@ export function subscribeToVaultState(
       },
     })
     .on('broadcast', { event: 'instant_sync' }, (message: any) => {
+      const payload = message?.payload;
+      if (payload?.snapshot) {
+        onSnapshot(payload.snapshot, payload.senderId);
+      } else {
+        onRemoteChange();
+      }
+    })
+    .on('broadcast', { event: 'state_changed' }, (message: any) => {
       const payload = message?.payload;
       if (payload?.snapshot) {
         onSnapshot(payload.snapshot, payload.senderId);

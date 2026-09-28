@@ -21,8 +21,8 @@ import {
   saveFinanceSnapshot,
   signOut as signOutFromSupabase,
   subscribeToVaultState,
-} from '../services/supabaseFinance';
 import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient';
+import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { Toast, ToastMessage } from '../components/common/Toast';
 
 interface FinanceContextType {
@@ -150,6 +150,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const pendingCreatedGoalIdsRef = useRef<Set<string>>(new Set());
   const pendingCreatedStockIdsRef = useRef<Set<string>>(new Set());
   const pendingCreatedBillIdsRef = useRef<Set<string>>(new Set());
+  const pendingCreatedCategoryIdsRef = useRef<Set<string>>(new Set());
 
   // Active Realtime Channel ref for instant WebSocket broadcasts
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
@@ -407,10 +408,40 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!remoteBillMap.has(id)) deletedBills.delete(id);
     });
 
-    // 5. Categories
-    const validCategories = (snapshot.categories && snapshot.categories.length > 0)
-      ? snapshot.categories.filter(c => c.id !== '__budgets_config__')
+    // 5. Categories Merge (Union of DEFAULT_CATEGORIES, local cache, pending created, and remote snapshot)
+    const remoteCategories = (snapshot.categories || []).filter(c => c && c.id !== '__budgets_config__');
+    const localCategories = (categoriesRef.current && categoriesRef.current.length > 0)
+      ? categoriesRef.current
       : CloudStore.getCategories();
+
+    const categoryMap = new Map<string, Category>();
+
+    // Seed defaults
+    DEFAULT_CATEGORIES.forEach(c => categoryMap.set(c.id, c));
+
+    // Add local (custom) categories
+    localCategories.forEach(c => {
+      if (c && c.id && c.id !== '__budgets_config__') {
+        categoryMap.set(c.id, c);
+      }
+    });
+
+    // Add remote categories (remote acknowledgment)
+    remoteCategories.forEach(c => {
+      if (c && c.id && c.id !== '__budgets_config__') {
+        categoryMap.set(c.id, c);
+        pendingCreatedCategoryIdsRef.current.delete(c.id);
+      }
+    });
+
+    // Preserve any pending local categories
+    localCategories.forEach(c => {
+      if (c && pendingCreatedCategoryIdsRef.current.has(c.id)) {
+        categoryMap.set(c.id, c);
+      }
+    });
+
+    const validCategories = Array.from(categoryMap.values());
 
     // 6. Currency
     const validCurrency = snapshot.currency || 'INR';
@@ -856,7 +887,18 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   /* ─── Categories ──────────────────────────────────────────────────────── */
   const addCategory = (cat: Omit<Category, 'id'>): string => {
-    const newCat: Category = { ...cat, id: createRecordId('cat') };
+    const cleanName = cat.name.trim();
+    // Return existing if duplicate name (case-insensitive)
+    const existing = (categoriesRef.current || []).find(
+      c => c.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (existing) {
+      return existing.id;
+    }
+
+    const newCat: Category = { ...cat, name: cleanName, id: createRecordId('cat') };
+    pendingCreatedCategoryIdsRef.current.add(newCat.id);
+
     const updated = [...(categoriesRef.current || []), newCat];
     setCategories(updated);
     categoriesRef.current = updated;
@@ -864,7 +906,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ categories: updated });
-    showToast('Category created successfully', 'success');
+    showToast(`Category "${newCat.name}" created`, 'success');
     return newCat.id;
   };
 
