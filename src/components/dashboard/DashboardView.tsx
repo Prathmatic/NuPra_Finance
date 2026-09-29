@@ -115,13 +115,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const coupleLimit = Number(budgets.couple || 0);
   const myLimit = Number(
     (currentUser?.id ? budgets.userBudgets?.[currentUser.id] : undefined) 
-    ?? (currentUser?.id === vault?.partner1?.id ? budgets.me : budgets.partner)
     ?? budgets.me 
     ?? 0
   );
   const partnerLimit = Number(
     (partner?.id ? budgets.userBudgets?.[partner.id] : undefined) 
-    ?? (partner?.id === vault?.partner2?.id ? budgets.partner : budgets.me)
     ?? budgets.partner 
     ?? 0
   );

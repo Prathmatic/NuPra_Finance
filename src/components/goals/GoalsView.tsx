@@ -20,13 +20,13 @@ import {
   Clock,
   Check,
   X,
-  AlertCircle,
+  Wallet,
+  TrendingUp,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { FinanceGoal } from '../../types/finance';
 import { ContributeModal } from './ContributeModal';
 import { EditGoalModal } from './EditGoalModal';
-import { GoalStatsCard } from './GoalStatsCard';
 
 interface GoalsViewProps {
   onOpenAddGoalModal: () => void;
@@ -74,6 +74,23 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
   }, [transactions, currentUser, partner]);
 
   const totalSavingsTogether = mySavings + partnerSavings;
+
+  // ── Goals Summary Stats ───────────────────────────────────────────────────
+  const { totalTarget, totalSaved, totalNeededMore, completedCount } = useMemo(() => {
+    let target = 0, saved = 0, needed = 0, completed = 0;
+    goals.forEach(g => {
+      target += g.targetAmount;
+      saved += g.currentAmount;
+      needed += Math.max(0, g.targetAmount - g.currentAmount);
+      if (g.currentAmount >= g.targetAmount && g.targetAmount > 0) {
+        completed++;
+      }
+    });
+    return { totalTarget: target, totalSaved: saved, totalNeededMore: needed, completedCount: completed };
+  }, [goals]);
+
+  const overallProgress = totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0;
+  const completionRate = goals.length > 0 ? Math.round((completedCount / goals.length) * 100) : 0;
 
   // ── Permission helpers ────────────────────────────────────────────────────
   const canEditGoal = (goal: FinanceGoal) => {
@@ -196,6 +213,58 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
             <Plus className="w-4 h-4" /> New Goal
           </button>
         </div>
+
+        {/* ── 3 Net Available Savings Cards Even on Empty State ─────────── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="p-3.5 rounded-2xl bg-white/5 border border-blue-500/20 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-blue-400" />
+                <span className="truncate">{currentUser?.name || 'You'}</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300">
+                You
+              </span>
+            </div>
+            <p className="text-base sm:text-lg font-black text-blue-400 truncate">
+              {formatCurrency(mySavings, currency)}
+            </p>
+            <p className="text-[10px] text-slate-500">Available Net Savings</p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-white/5 border border-purple-500/20 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <HeartHandshake className="w-3.5 h-3.5 text-purple-400" />
+                <span className="truncate">{partner?.name || 'Partner'}</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300">
+                Partner
+              </span>
+            </div>
+            <p className="text-base sm:text-lg font-black text-purple-400 truncate">
+              {formatCurrency(partnerSavings, currency)}
+            </p>
+            <p className="text-[10px] text-slate-500">Available Net Savings</p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-white/5 border border-emerald-500/20 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Together</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
+                Combined
+              </span>
+            </div>
+            <p className="text-base sm:text-lg font-black text-emerald-400 truncate">
+              {formatCurrency(totalSavingsTogether, currency)}
+            </p>
+            <p className="text-[10px] text-slate-500">Joint Savings Pool</p>
+          </div>
+        </div>
+
         <div className="glass-panel p-10 rounded-3xl border border-white/10 flex flex-col items-center justify-center space-y-4 text-center">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-rose-500/20 to-indigo-500/20 flex items-center justify-center">
             <Target className="w-8 h-8 text-rose-400" />
@@ -239,13 +308,121 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
         </button>
       </div>
 
-      {/* ── Interactive Stats & Pie Chart Section ────────────────────────── */}
-      <GoalStatsCard
-        goals={goals}
-        mySavings={mySavings}
-        partnerSavings={partnerSavings}
-        totalSavingsTogether={totalSavingsTogether}
-      />
+      {/* ── 3 Net Available Savings (Me, Partner, Together) Banner ──────── */}
+      <div className="glass-panel p-5 rounded-3xl border border-white/10 bg-gradient-to-br from-rose-950/70 via-slate-900 to-indigo-950/70 shadow-xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+              <Wallet className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Available Net Savings
+              </h3>
+              <p className="text-[11px] text-slate-400">Net Balance (Income minus Expenses) for each partner & together</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            Realtime
+          </span>
+        </div>
+
+        {/* The 3 Individual & Combined Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {/* Card 1: Current User's Savings */}
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-blue-500/30 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-blue-400" />
+                <span className="truncate max-w-[120px]">{currentUser?.name || 'You'}</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                You
+              </span>
+            </div>
+            <p className="text-base sm:text-lg font-black text-blue-400 truncate">
+              {formatCurrency(mySavings, currency)}
+            </p>
+            <p className="text-[10px] text-slate-500">Your available net savings</p>
+          </div>
+
+          {/* Card 2: Partner's Savings */}
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-purple-500/30 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <HeartHandshake className="w-3.5 h-3.5 text-purple-400" />
+                <span className="truncate max-w-[120px]">{partner?.name || 'Partner'}</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                Partner
+              </span>
+            </div>
+            <p className="text-base sm:text-lg font-black text-purple-400 truncate">
+              {formatCurrency(partnerSavings, currency)}
+            </p>
+            <p className="text-[10px] text-slate-500">{partner?.name || 'Partner'}'s available net savings</p>
+          </div>
+
+          {/* Card 3: Combined / Together Savings */}
+          <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-emerald-500/30 space-y-1">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Together</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Combined
+              </span>
+            </div>
+            <p className="text-base sm:text-lg font-black text-emerald-400 truncate">
+              {formatCurrency(totalSavingsTogether, currency)}
+            </p>
+            <p className="text-[10px] text-slate-500">Joint couple savings pool</p>
+          </div>
+        </div>
+
+        {/* Goals Progress Summary Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5 text-center">
+          <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+            <p className="text-[10px] text-slate-400 mb-0.5">Goals Completed</p>
+            <p className="text-xs sm:text-sm font-bold text-emerald-400">
+              {completedCount} / {goals.length} ({completionRate}%)
+            </p>
+          </div>
+          <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+            <p className="text-[10px] text-slate-400 mb-0.5">Saved in Goals</p>
+            <p className="text-xs sm:text-sm font-bold text-white truncate">
+              {formatCurrency(totalSaved, currency)}
+            </p>
+          </div>
+          <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+            <p className="text-[10px] text-slate-400 mb-0.5">Total Target</p>
+            <p className="text-xs sm:text-sm font-bold text-slate-300 truncate">
+              {formatCurrency(totalTarget, currency)}
+            </p>
+          </div>
+          <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+            <p className="text-[10px] text-slate-400 mb-0.5">Still Needed</p>
+            <p className="text-xs sm:text-sm font-bold text-amber-400 truncate">
+              {formatCurrency(totalNeededMore, currency)}
+            </p>
+          </div>
+        </div>
+
+        {/* Global Progress Bar */}
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-slate-400 font-medium">
+            <span>Overall Goals Progress</span>
+            <span>{overallProgress}%</span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-indigo-500 transition-all duration-700"
+              style={{ width: `${overallProgress}%` }}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* ── Filter Pills ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">

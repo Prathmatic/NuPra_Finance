@@ -458,7 +458,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     // 6. Currency
     const validCurrency = snapshot.currency || 'INR';
 
-    // 7. Budgets (Preserve each partner's userBudgets)
+    // 7. Budgets (Preserve each partner's userBudgets by specific user ID)
     const rawLoadedBudgets = snapshot.budgets || CloudStore.getBudgets();
     const localBudgets = budgetsRef.current || CloudStore.getBudgets();
     const mergedUserBudgets: Record<string, number> = {
@@ -466,12 +466,18 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(rawLoadedBudgets?.userBudgets || {}),
     };
     const currentUserId = currentUserRef.current?.id;
-    const resolvedMe = currentUserId ? mergedUserBudgets[currentUserId] : undefined;
+    const activeVault = vaultRef.current || vault;
+    const partnerId = partner?.id || (activeVault?.partner1?.id === currentUserId ? activeVault?.partner2?.id : activeVault?.partner1?.id);
+
+    // Resolve individual budgets strictly by user ID to prevent swap between devices
+    const resolvedMe = currentUserId ? (mergedUserBudgets[currentUserId] ?? rawLoadedBudgets?.me ?? localBudgets?.me ?? 0) : 0;
+    const resolvedPartner = partnerId ? (mergedUserBudgets[partnerId] ?? rawLoadedBudgets?.partner ?? localBudgets?.partner ?? 0) : 0;
+
     const loadedBudgets: BudgetsConfig = {
       couple: Number(rawLoadedBudgets?.couple ?? localBudgets?.couple ?? 0),
       userBudgets: mergedUserBudgets,
-      me: Number(resolvedMe ?? rawLoadedBudgets?.me ?? localBudgets?.me ?? 0),
-      partner: Number(rawLoadedBudgets?.partner ?? localBudgets?.partner ?? 0),
+      me: Number(resolvedMe),
+      partner: Number(resolvedPartner),
     };
 
     // Update state & refs
@@ -736,7 +742,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       : (activeBudgets.couple || 0);
 
     // Partner's budget is strictly preserved (read-only for current user)
-    const partnerId = partner?.id;
+    const activeVaultForPartner = vaultRef.current || vault;
+    const partnerId = partner?.id || (activeVaultForPartner?.partner1?.id === currentUserId ? activeVaultForPartner?.partner2?.id : activeVaultForPartner?.partner1?.id);
     const myAmount = updatedUserBudgets[currentUserId] || 0;
     const partnerAmount = partnerId ? (updatedUserBudgets[partnerId] || 0) : (activeBudgets.partner || 0);
 

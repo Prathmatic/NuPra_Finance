@@ -26,12 +26,29 @@ import {
   Users
 } from 'lucide-react';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
+import { GoalStatsCard } from '../goals/GoalStatsCard';
 
 export const StatisticsView: React.FC = () => {
   const { transactions, goals, stocks, currency, currentUser, partner } = useFinance();
   const [timeframe, setTimeframe] = useState<'monthly' | 'yearly'>('monthly');
 
   const currencySymbol = getCurrencySymbol(currency);
+
+  // Available Net Savings for Goals plot breakdown
+  const { mySavings, partnerSavings, totalSavingsTogether } = useMemo(() => {
+    const incomeMap: Record<string, number> = {};
+    const expenseMap: Record<string, number> = {};
+    transactions.forEach(tx => {
+      if (!tx.userId) return;
+      if (tx.type === 'income') incomeMap[tx.userId] = (incomeMap[tx.userId] || 0) + tx.amount;
+      else if (tx.type === 'expense') expenseMap[tx.userId] = (expenseMap[tx.userId] || 0) + tx.amount;
+    });
+    const myId = currentUser?.id;
+    const partnerId = partner?.id;
+    const myNet = myId ? Math.max(0, (incomeMap[myId] || 0) - (expenseMap[myId] || 0)) : 0;
+    const partnerNet = partnerId ? Math.max(0, (incomeMap[partnerId] || 0) - (expenseMap[partnerId] || 0)) : 0;
+    return { mySavings: myNet, partnerSavings: partnerNet, totalSavingsTogether: myNet + partnerNet };
+  }, [transactions, currentUser, partner]);
 
   // 1. Monthly & Yearly Individual vs Together Savings & Expenses
   const { monthlyData, yearlyData } = useMemo(() => {
@@ -406,6 +423,14 @@ export const StatisticsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 4. Goal Savings Contribution & Progress Breakdown Plot */}
+      <GoalStatsCard
+        goals={goals}
+        mySavings={mySavings}
+        partnerSavings={partnerSavings}
+        totalSavingsTogether={totalSavingsTogether}
+      />
     </div>
   );
 };

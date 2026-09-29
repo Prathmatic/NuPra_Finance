@@ -20,14 +20,12 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
 
   const myCurrentBudget = Number(
     (currentUserId ? budgets.userBudgets?.[currentUserId] : undefined) 
-    ?? (currentUserId === vault?.partner1?.id ? budgets.me : budgets.partner)
     ?? budgets.me 
     ?? 0
   );
 
   const partnerCurrentBudget = Number(
     (partnerId ? budgets.userBudgets?.[partnerId] : undefined)
-    ?? (partnerId === vault?.partner2?.id ? budgets.partner : budgets.me)
     ?? budgets.partner 
     ?? 0
   );
