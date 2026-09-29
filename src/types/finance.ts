@@ -91,6 +91,36 @@ export interface GoalContribution {
   note?: string;
 }
 
+export interface GoalComment {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface GoalChangeProposal {
+  title?: string;
+  targetAmount?: number;
+  targetDate?: string;
+  color?: string;
+  notes?: string;
+  isShared?: boolean;
+  assignedTo?: 'both' | 'me' | 'partner' | string;
+  assignedUserId?: string;
+  assignedUserName?: string;
+}
+
+export interface GoalChangeRequest {
+  id: string;
+  requestedByUserId: string;
+  requestedByUserName: string;
+  requestedAt: string;
+  proposedChanges: GoalChangeProposal;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 export interface FinanceGoal {
   id: string;
   title: string;
@@ -107,6 +137,12 @@ export interface FinanceGoal {
   assignedUserName?: string;
   contributions: GoalContribution[];
   notes?: string;
+  isFlagged?: boolean;
+  flaggedByUserId?: string;
+  flaggedByUserName?: string;
+  flaggedAt?: string;
+  comments?: GoalComment[];
+  pendingChange?: GoalChangeRequest | null;
 }
 
 export interface StockInvestment {

@@ -5,6 +5,9 @@ import {
   CoupleVault, 
   Transaction, 
   FinanceGoal, 
+  GoalComment,
+  GoalChangeProposal,
+  GoalChangeRequest,
   StockInvestment, 
   BillItem, 
   Category, 
@@ -83,8 +86,15 @@ interface FinanceContextType {
 
   // Goal Actions
   addGoal: (goal: Omit<FinanceGoal, 'id' | 'currentAmount' | 'contributions'>) => void;
+  updateGoal: (goalId: string, updates: Partial<Omit<FinanceGoal, 'id' | 'contributions' | 'currentAmount'>>) => void;
   contributeToGoal: (goalId: string, amount: number, note?: string) => void;
   deleteGoal: (id: string) => void;
+  flagGoal: (goalId: string) => void;
+  addGoalComment: (goalId: string, text: string) => void;
+  requestGoalChange: (goalId: string, proposedChanges: GoalChangeProposal) => void;
+  approveGoalChange: (goalId: string) => void;
+  rejectGoalChange: (goalId: string) => void;
+  cancelGoalChange: (goalId: string) => void;
 
   // Stock Actions
   addStock: (stock: Omit<StockInvestment, 'id'>) => void;
@@ -1028,6 +1038,183 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast('Goal removed', 'info');
   };
 
+  const updateGoal = (goalId: string, updates: Partial<Omit<FinanceGoal, 'id' | 'contributions' | 'currentAmount'>>) => {
+    if (!currentUser) return;
+    const existing = (goalsRef.current || []).find(g => g.id === goalId);
+    if (!existing) return;
+    // Permission: only assigned user (or both for shared) can edit
+    const isAssigned = existing.assignedUserId === currentUser.id;
+    const isShared = existing.isShared;
+    const isCreator = existing.createdByUserId === currentUser.id;
+    if (!isAssigned && !isShared && !isCreator) {
+      showToast("You don't have permission to edit this goal", 'error');
+      return;
+    }
+    const updated = (goalsRef.current || []).map(g =>
+      g.id === goalId ? { ...g, ...updates } : g
+    );
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+    showToast('Goal updated successfully', 'success');
+  };
+
+  const flagGoal = (goalId: string) => {
+    if (!currentUser) return;
+    const existing = (goalsRef.current || []).find(g => g.id === goalId);
+    if (!existing) return;
+    const isCurrentlyFlagged = existing.isFlagged && existing.flaggedByUserId === currentUser.id;
+    const updated = (goalsRef.current || []).map(g =>
+      g.id === goalId
+        ? {
+            ...g,
+            isFlagged: !isCurrentlyFlagged,
+            flaggedByUserId: !isCurrentlyFlagged ? currentUser.id : undefined,
+            flaggedByUserName: !isCurrentlyFlagged ? currentUser.name : undefined,
+            flaggedAt: !isCurrentlyFlagged ? new Date().toISOString() : undefined,
+          }
+        : g
+    );
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+    showToast(isCurrentlyFlagged ? 'Flag removed from goal' : 'Goal flagged for review', isCurrentlyFlagged ? 'info' : 'success');
+  };
+
+  const addGoalComment = (goalId: string, text: string) => {
+    if (!currentUser || !text.trim()) return;
+    const comment: GoalComment = {
+      id: createRecordId('gc'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    const updated = (goalsRef.current || []).map(g =>
+      g.id === goalId
+        ? { ...g, comments: [comment, ...(g.comments || [])] }
+        : g
+    );
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+  };
+
+  const requestGoalChange = (goalId: string, proposedChanges: GoalChangeProposal) => {
+    if (!currentUser) return;
+    const existing = (goalsRef.current || []).find(g => g.id === goalId);
+    if (!existing) return;
+
+    const changeRequest: GoalChangeRequest = {
+      id: createRecordId('gcr'),
+      requestedByUserId: currentUser.id,
+      requestedByUserName: currentUser.name,
+      requestedAt: new Date().toISOString(),
+      proposedChanges,
+      status: 'pending',
+    };
+
+    const updated = (goalsRef.current || []).map(g =>
+      g.id === goalId ? { ...g, pendingChange: changeRequest } : g
+    );
+
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+    showToast('Change request sent to partner for approval ⏳', 'info');
+  };
+
+  const approveGoalChange = (goalId: string) => {
+    if (!currentUser) return;
+    const existing = (goalsRef.current || []).find(g => g.id === goalId);
+    if (!existing || !existing.pendingChange) return;
+
+    const { proposedChanges, requestedByUserName } = existing.pendingChange;
+
+    const approvalComment: GoalComment = {
+      id: createRecordId('gc'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+      text: `Approved change request submitted by ${requestedByUserName || 'partner'}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = (goalsRef.current || []).map(g => {
+      if (g.id !== goalId) return g;
+      return {
+        ...g,
+        ...proposedChanges,
+        pendingChange: null,
+        comments: [approvalComment, ...(g.comments || [])],
+      };
+    });
+
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+    showToast('Goal changes approved and applied! 🎉', 'success');
+  };
+
+  const rejectGoalChange = (goalId: string) => {
+    if (!currentUser) return;
+    const existing = (goalsRef.current || []).find(g => g.id === goalId);
+    if (!existing || !existing.pendingChange) return;
+
+    const rejectionComment: GoalComment = {
+      id: createRecordId('gc'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+      text: `Declined change request submitted by ${existing.pendingChange.requestedByUserName || 'partner'}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = (goalsRef.current || []).map(g =>
+      g.id === goalId ? { ...g, pendingChange: null, comments: [rejectionComment, ...(g.comments || [])] } : g
+    );
+
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+    showToast('Change request rejected', 'info');
+  };
+
+  const cancelGoalChange = (goalId: string) => {
+    if (!currentUser) return;
+    const updated = (goalsRef.current || []).map(g =>
+      g.id === goalId ? { ...g, pendingChange: null } : g
+    );
+
+    setGoals(updated);
+    goalsRef.current = updated;
+    CloudStore.saveGoals(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ goals: updated });
+    showToast('Change request cancelled', 'info');
+  };
+
+
   /* ─── Stocks ──────────────────────────────────────────────────────────── */
   const addStock = (stock: Omit<StockInvestment, 'id'>) => {
     if (!currentUser) return;
@@ -1251,7 +1438,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addTransaction, updateTransaction, deleteTransaction,
         toggleFlagTransaction, addTransactionComment,
         addCategory,
-        addGoal, contributeToGoal, deleteGoal,
+        addGoal, updateGoal, contributeToGoal, deleteGoal, flagGoal, addGoalComment,
+        requestGoalChange, approveGoalChange, rejectGoalChange, cancelGoalChange,
         addStock, updateStock, deleteStock,
         addBill, markBillAsPaid, deleteBill,
         settleBill, settleAllBills,
