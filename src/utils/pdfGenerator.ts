@@ -313,7 +313,7 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
 
   const uint8 = stringToUint8Array(pdf);
-  return new Blob([uint8], { type: 'application/pdf' });
+  return new Blob([uint8.buffer as ArrayBuffer], { type: 'application/pdf' });
 }
 
 /**
