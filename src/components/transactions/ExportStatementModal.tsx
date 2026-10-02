@@ -11,10 +11,12 @@ import {
   Check, 
   ArrowDownRight, 
   ArrowUpRight,
-  Building
+  Building,
+  FileDown
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Transaction } from '../../types/finance';
+import { downloadStatementPdf, printStatementHtml, StatementData } from '../../utils/pdfGenerator';
 
 interface ExportStatementModalProps {
   isOpen: boolean;
@@ -162,14 +164,52 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     onClose();
   };
 
-  // Printable Statement / Save as PDF
-  const handlePrintStatement = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      showToast('Please allow popups to generate statement print view', 'error');
+  // Direct PDF Download
+  const handleExportPDF = () => {
+    if (statementTransactions.length === 0) {
+      showToast('No transactions found for this period to export', 'info');
       return;
     }
 
+    try {
+      const cleanScope = scope === 'couple' ? 'Couple' : scope === 'me' ? currentUser.name : partner?.name || 'Partner';
+      const cleanPeriod = periodType === 'monthly' ? targetMonth : periodType === 'yearly' ? targetYear : 'AllTime';
+      const fileName = `NuPra_Statement_${cleanScope}_${cleanPeriod}.pdf`;
+
+      const statementData: StatementData = {
+        scopeLabel,
+        periodLabel,
+        statementDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        vaultName: vault?.name || 'Couple Vault',
+        vaultId: vault?.id || 'NP-VAULT',
+        accountHolders: `${currentUser.name}${partner ? ` & ${partner.name}` : ''}`,
+        currency,
+        totalIncome,
+        totalExpense,
+        netSavings,
+        transactions: statementTransactions.map(t => ({
+          date: t.date,
+          title: t.title,
+          categoryName: t.categoryName,
+          userName: t.userName,
+          paymentMethod: t.paymentMethod,
+          type: t.type,
+          amount: t.amount,
+        })),
+      };
+
+      downloadStatementPdf(statementData, fileName);
+      showToast('PDF statement downloaded successfully! 📄', 'success');
+      onClose();
+    } catch (err) {
+      console.error('PDF export error:', err);
+      showToast('Direct download failed, opening print view...', 'error');
+      handlePrintStatement();
+    }
+  };
+
+  // Printable Statement / Save as PDF
+  const handlePrintStatement = () => {
     const rowsHtml = statementTransactions.map(t => `
       <tr style="border-bottom: 1px solid #e2e8f0;">
         <td style="padding: 10px 8px; font-size: 12px; color: #475569;">${t.date}</td>
@@ -279,11 +319,8 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       </html>
     `;
 
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-
-    showToast('Statement view generated. Tap Print to save as PDF.', 'success');
+    printStatementHtml(html);
+    showToast('Print dialog opened', 'info');
   };
 
   return (
@@ -470,14 +507,24 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={handleExportPDF}
+              disabled={statementTransactions.length === 0}
+              className="py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-90 disabled:opacity-40 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-lg shadow-emerald-500/20"
+            >
+              <FileDown className="w-4 h-4 shrink-0" />
+              <span>Download PDF</span>
+            </button>
+
             <button
               type="button"
               onClick={handleExportCSV}
               disabled={statementTransactions.length === 0}
-              className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-white/15 text-white font-bold text-xs transition-all flex items-center justify-center gap-2 active:scale-95 shadow-md"
+              className="py-3 px-3 rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-white/15 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-md"
             >
-              <Download className="w-4 h-4 text-emerald-400" />
+              <Download className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>Download CSV</span>
             </button>
 
@@ -485,10 +532,10 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
               type="button"
               onClick={handlePrintStatement}
               disabled={statementTransactions.length === 0}
-              className="py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:opacity-90 disabled:opacity-40 text-white font-bold text-xs transition-all flex items-center justify-center gap-2 active:scale-95 shadow-lg shadow-indigo-500/25"
+              className="py-3 px-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 border border-white/10 text-slate-300 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
             >
-              <Printer className="w-4 h-4" />
-              <span>Print / Save as PDF</span>
+              <Printer className="w-4 h-4 text-indigo-400 shrink-0" />
+              <span>Print View</span>
             </button>
           </div>
         </div>

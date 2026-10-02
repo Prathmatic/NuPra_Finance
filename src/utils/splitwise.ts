@@ -140,7 +140,7 @@ export function getBillSplitInfo(
         badgeType: 'emerald',
         description: `Split 50/50 · You paid full, ${partnerName} owes 50%`,
       };
-    } else {
+    } else if (payer === partnerId) {
       return {
         status: 'you_owe_partner',
         amountOwed: half,
@@ -154,7 +154,8 @@ export function getBillSplitInfo(
   }
 
   if (split === 'full_debt') {
-    if (payer === currentUserId) {
+    const borrower = bill.borrowerId;
+    if (payer === currentUserId && (borrower === partnerId || !borrower)) {
       return {
         status: 'partner_owes_you',
         amountOwed: bill.amount,
@@ -164,7 +165,7 @@ export function getBillSplitInfo(
         badgeType: 'emerald',
         description: `You paid for ${partnerName} · ${partnerName} owes full amount`,
       };
-    } else {
+    } else if (payer === partnerId && (borrower === currentUserId || !borrower)) {
       return {
         status: 'you_owe_partner',
         amountOwed: bill.amount,

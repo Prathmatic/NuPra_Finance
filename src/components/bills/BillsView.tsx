@@ -373,8 +373,8 @@ export const BillsView: React.FC = () => {
                     {isUnsettledDebt && (
                       <button
                         onClick={() => settleBill(b.id)}
-                        className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold transition-all flex items-center gap-1"
-                        title="Mark this bill's debt as settled"
+                        className="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                        title={`Settle ${formatCurrency(splitInfo.amountOwed, currency)}: Deduct from payer & credit receiver`}
                       >
                         <CheckCircle className="w-3 h-3 text-emerald-400" />
                         <span>Settle</span>

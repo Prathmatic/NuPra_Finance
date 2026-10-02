@@ -28,6 +28,7 @@ import {
 import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { Toast, ToastMessage } from '../components/common/Toast';
+import { calculateSplitwiseBalance, getBillSplitInfo } from '../utils/splitwise';
 
 interface FinanceContextType {
   currentUser: UserProfile | null;
@@ -105,7 +106,7 @@ interface FinanceContextType {
   addBill: (bill: Omit<BillItem, 'id' | 'isPaid'> & { isPaid?: boolean }) => void;
   markBillAsPaid: (billId: string, paidByUserId?: string, paidByUserName?: string) => void;
   deleteBill: (id: string) => void;
-  settleBill: (billId: string) => void;
+  settleBill: (billId: string, recordTx?: boolean) => void;
   settleAllBills: (recordTx?: boolean) => void;
 
   // Sync
@@ -781,12 +782,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       const now = new Date().toISOString();
       const newTxDate = tx.date || now.split('T')[0];
-      // Always enforce currentUser as creator/payer
+      const txUserId = tx.userId || currentUser.id;
+      const txUserName = tx.userName || (txUserId === currentUser.id ? currentUser.name : partner?.name || 'Partner');
+      const txUserAvatar = tx.userAvatar !== undefined ? tx.userAvatar : (txUserId === currentUser.id ? currentUser.avatarUrl : partner?.avatarUrl);
       const newTx: Transaction = { 
         ...tx, 
-        userId: currentUser.id,
-        userName: currentUser.name,
-        userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+        userId: txUserId,
+        userName: txUserName,
+        userAvatar: (txUserAvatar && !txUserAvatar.startsWith('data:')) ? txUserAvatar : undefined,
         id: createRecordId('tx'), 
         date: newTxDate,
         createdAt: now 
@@ -1312,14 +1315,48 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addBill = (bill: Omit<BillItem, 'id' | 'isPaid'> & { isPaid?: boolean }) => {
     const { isPaid = false, ...rest } = bill;
     const newBill: BillItem = { ...rest, isPaid, id: createRecordId('bill') };
-    const updated = [newBill, ...(billsRef.current || [])];
+    const updatedBills = [newBill, ...(billsRef.current || [])];
     pendingCreatedBillIdsRef.current.add(newBill.id);
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+
+    let updatedTransactions = transactionsRef.current || [];
+    if (isPaid && newBill.amount > 0) {
+      const payerId = newBill.paidByUserId || newBill.payerId || currentUser?.id;
+      const payerName = newBill.paidByUserName || newBill.payerName || (payerId === currentUser?.id ? currentUser?.name : partner?.name) || 'You';
+      if (payerId) {
+        const transaction: Transaction = {
+          id: createRecordId('tx'),
+          title: `Bill Paid: ${newBill.title}`,
+          amount: newBill.amount,
+          type: 'expense',
+          categoryId: 'cat-utilities',
+          categoryName: newBill.categoryName || 'Utilities',
+          categoryColor: newBill.categoryColor || '#F97316',
+          categoryIcon: 'Zap',
+          paymentMethod: 'UPI / Pix',
+          date: newBill.paidDate || new Date().toISOString().split('T')[0],
+          userId: payerId,
+          userName: payerName,
+          userAvatar: payerId === currentUser?.id
+            ? ((currentUser?.avatarUrl && !currentUser?.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined)
+            : ((partner?.avatarUrl && !partner?.avatarUrl.startsWith('data:')) ? partner.avatarUrl : undefined),
+          isShared: true,
+          notes: `Bill payment for ${newBill.title}`,
+          createdAt: new Date().toISOString(),
+        };
+        pendingCreatedTxIdsRef.current.add(transaction.id);
+        updatedTransactions = sortTransactionsDesc([transaction, ...updatedTransactions]);
+        setTransactions(updatedTransactions);
+        transactionsRef.current = updatedTransactions;
+        CloudStore.saveTransactions(updatedTransactions);
+      }
+    }
+
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
     showToast('Bill added successfully', 'success');
   };
 
@@ -1377,40 +1414,194 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast(`Bill marked as paid by ${payerName}`, 'success');
   };
 
-  const settleBill = (billId: string) => {
-    const updated = (billsRef.current || []).map(b => {
+  const settleBill = (billId: string, recordTx: boolean = true) => {
+    if (!currentUser) return;
+    const nowIso = new Date().toISOString().split('T')[0];
+    const now = new Date().toISOString();
+
+    const targetBill = (billsRef.current || []).find(b => b.id === billId);
+    if (!targetBill) return;
+
+    const updatedBills = (billsRef.current || []).map(b => {
       if (b.id === billId) {
         return {
           ...b,
           isSettled: true,
-          settledDate: new Date().toISOString().split('T')[0],
+          settledDate: nowIso,
         };
       }
       return b;
     });
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+
+    let updatedTransactions = transactionsRef.current || [];
+    let payerName = 'Payer';
+    let receiverName = 'Receiver';
+    let settledAmount = 0;
+
+    if (recordTx && partner) {
+      const splitInfo = getBillSplitInfo(targetBill, currentUser.id, partner.id, partner.name);
+      if (splitInfo.amountOwed > 0) {
+        settledAmount = splitInfo.amountOwed;
+        const partnerOwesMe = splitInfo.status === 'partner_owes_you';
+        const payer = partnerOwesMe ? partner : currentUser;
+        const receiver = partnerOwesMe ? currentUser : partner;
+        payerName = payer.name;
+        receiverName = receiver.name;
+
+        // 1. Deduct from payer's account (Expense)
+        const payerExpenseTx: Transaction = {
+          id: createRecordId('tx'),
+          title: `Settlement: Paid to ${receiver.name} (${targetBill.title})`,
+          amount: settledAmount,
+          type: 'expense',
+          categoryId: 'cat-settlement',
+          categoryName: 'Bill Settlement',
+          categoryColor: '#10B981',
+          categoryIcon: 'ArrowRightLeft',
+          paymentMethod: 'UPI / Pix',
+          date: nowIso,
+          userId: payer.id,
+          userName: payer.name,
+          userAvatar: (payer.avatarUrl && !payer.avatarUrl.startsWith('data:')) ? payer.avatarUrl : undefined,
+          isShared: true,
+          notes: `Splitwise settlement payment for "${targetBill.title}" to ${receiver.name}`,
+          createdAt: now,
+        };
+
+        // 2. Add to receiver's account (Income)
+        const receiverIncomeTx: Transaction = {
+          id: createRecordId('tx'),
+          title: `Settlement: Received from ${payer.name} (${targetBill.title})`,
+          amount: settledAmount,
+          type: 'income',
+          categoryId: 'cat-settlement',
+          categoryName: 'Bill Settlement',
+          categoryColor: '#10B981',
+          categoryIcon: 'ArrowRightLeft',
+          paymentMethod: 'UPI / Pix',
+          date: nowIso,
+          userId: receiver.id,
+          userName: receiver.name,
+          userAvatar: (receiver.avatarUrl && !receiver.avatarUrl.startsWith('data:')) ? receiver.avatarUrl : undefined,
+          isShared: true,
+          notes: `Splitwise settlement received for "${targetBill.title}" from ${payer.name}`,
+          createdAt: now,
+        };
+
+        pendingCreatedTxIdsRef.current.add(payerExpenseTx.id);
+        pendingCreatedTxIdsRef.current.add(receiverIncomeTx.id);
+        updatedTransactions = sortTransactionsDesc([payerExpenseTx, receiverIncomeTx, ...updatedTransactions]);
+      }
+    }
+
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
+
+    if (updatedTransactions !== transactionsRef.current) {
+      setTransactions(updatedTransactions);
+      transactionsRef.current = updatedTransactions;
+      CloudStore.saveTransactions(updatedTransactions);
+    }
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
-    showToast('Debt marked as settled', 'success');
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+
+    if (settledAmount > 0) {
+      showToast(`Settled "${targetBill.title}": Deducted from ${payerName} & added to ${receiverName}`, 'success');
+    } else {
+      showToast('Debt marked as settled', 'success');
+    }
   };
 
   const settleAllBills = (recordTx: boolean = true) => {
+    if (!currentUser) return;
     const nowIso = new Date().toISOString().split('T')[0];
-    const updated = (billsRef.current || []).map(b => ({
-      ...b,
-      isSettled: true,
-      settledDate: nowIso,
-    }));
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+    const now = new Date().toISOString();
+
+    const debtSummary = calculateSplitwiseBalance(billsRef.current || [], currentUser.id, partner?.id);
+    const absAmount = Math.abs(debtSummary.netAmount);
+
+    const updatedBills = (billsRef.current || []).map(b => {
+      if (debtSummary.unsettledBills.some(ub => ub.id === b.id) || (!b.isSettled && (b.paidByUserId || b.payerId))) {
+        return {
+          ...b,
+          isSettled: true,
+          settledDate: nowIso,
+        };
+      }
+      return b;
+    });
+
+    let updatedTransactions = transactionsRef.current || [];
+    let toastMsg = 'All debts settled up successfully! 🎉';
+
+    if (recordTx && absAmount > 0 && partner) {
+      const partnerOwesMe = debtSummary.netAmount > 0;
+      const payer = partnerOwesMe ? partner : currentUser;
+      const receiver = partnerOwesMe ? currentUser : partner;
+
+      // 1. Deduct from payer's account (Expense)
+      const payerExpenseTx: Transaction = {
+        id: createRecordId('tx'),
+        title: `Settlement: Paid to ${receiver.name}`,
+        amount: absAmount,
+        type: 'expense',
+        categoryId: 'cat-settlement',
+        categoryName: 'Bill Settlement',
+        categoryColor: '#10B981',
+        categoryIcon: 'ArrowRightLeft',
+        paymentMethod: 'UPI / Pix',
+        date: nowIso,
+        userId: payer.id,
+        userName: payer.name,
+        userAvatar: (payer.avatarUrl && !payer.avatarUrl.startsWith('data:')) ? payer.avatarUrl : undefined,
+        isShared: true,
+        notes: `Splitwise settlement payment to ${receiver.name} for ${debtSummary.unsettledBillsCount} bill(s)`,
+        createdAt: now,
+      };
+
+      // 2. Add to receiver's account (Income)
+      const receiverIncomeTx: Transaction = {
+        id: createRecordId('tx'),
+        title: `Settlement: Received from ${payer.name}`,
+        amount: absAmount,
+        type: 'income',
+        categoryId: 'cat-settlement',
+        categoryName: 'Bill Settlement',
+        categoryColor: '#10B981',
+        categoryIcon: 'ArrowRightLeft',
+        paymentMethod: 'UPI / Pix',
+        date: nowIso,
+        userId: receiver.id,
+        userName: receiver.name,
+        userAvatar: (receiver.avatarUrl && !receiver.avatarUrl.startsWith('data:')) ? receiver.avatarUrl : undefined,
+        isShared: true,
+        notes: `Splitwise settlement received from ${payer.name} for ${debtSummary.unsettledBillsCount} bill(s)`,
+        createdAt: now,
+      };
+
+      pendingCreatedTxIdsRef.current.add(payerExpenseTx.id);
+      pendingCreatedTxIdsRef.current.add(receiverIncomeTx.id);
+      updatedTransactions = sortTransactionsDesc([payerExpenseTx, receiverIncomeTx, ...updatedTransactions]);
+      toastMsg = `Settled up: Deducted from ${payer.name} & added to ${receiver.name} 🎉`;
+    }
+
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
+
+    if (updatedTransactions !== transactionsRef.current) {
+      setTransactions(updatedTransactions);
+      transactionsRef.current = updatedTransactions;
+      CloudStore.saveTransactions(updatedTransactions);
+    }
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
-    showToast('All debts settled up successfully! 🎉', 'success');
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    showToast(toastMsg, 'success');
   };
 
   const deleteBill = (id: string) => {
