@@ -30,6 +30,7 @@ const MainContent: React.FC = () => {
     return (
       <InteractiveSplash
         isAuthLoading={isAuthLoading}
+        minDurationMs={5000}
         onFinish={() => setShowSplash(false)}
       />
     );

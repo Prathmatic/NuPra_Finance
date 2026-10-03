@@ -17,11 +17,11 @@ interface Ripple {
 export const InteractiveSplash: React.FC<InteractiveSplashProps> = ({
   isAuthLoading = false,
   onFinish,
-  minDurationMs = 2200,
+  minDurationMs = 5000,
 }) => {
   const [phase, setPhase] = useState<'enter' | 'shine' | 'ready' | 'exit'>('enter');
   const [progress, setProgress] = useState(0);
-  const [statusText, setStatusText] = useState('Initializing Vault...');
+  const [statusText, setStatusText] = useState('Initializing Secure Vault...');
   const [ripples, setRipples] = useState<Ripple[]>([]);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [tapCount, setTapCount] = useState(0);
@@ -47,19 +47,21 @@ export const InteractiveSplash: React.FC<InteractiveSplashProps> = ({
     const start = Date.now();
     startTimeRef.current = start;
 
-    // Phase 1 -> Phase 2 (Shine)
+    // Phase 1 -> Phase 2 (Shine) at 1.2s
     const tShine = setTimeout(() => {
       setPhase('shine');
       setStatusText('Synchronizing Shared Vault...');
-    }, 600);
+    }, 1200);
 
-    // Smooth progress simulation
+    // Smooth progress simulation over 5 seconds
     const interval = setInterval(() => {
       const elapsed = Date.now() - start;
       const pct = Math.min(100, Math.round((elapsed / minDurationMs) * 100));
       setProgress(pct);
 
-      if (pct >= 50 && pct < 85) {
+      if (pct >= 25 && pct < 55) {
+        setStatusText('Synchronizing Shared Vault...');
+      } else if (pct >= 55 && pct < 85) {
         setStatusText('Unlocking Couple Workspace...');
       } else if (pct >= 85) {
         setStatusText('Vault Ready · Welcome');
