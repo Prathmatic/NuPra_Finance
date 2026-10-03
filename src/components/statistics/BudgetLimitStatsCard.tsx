@@ -291,9 +291,9 @@ export const BudgetLimitStatsCard: React.FC<BudgetLimitStatsCardProps> = ({
           <BarChart 
             data={monthlyPlotData} 
             margin={{ top: 12, right: 10, left: -20, bottom: 5 }}
-            onClick={(e) => {
+            onClick={(e: any) => {
               if (e && e.activePayload && e.activePayload[0]) {
-                const clickedKey = e.activePayload[0].payload.monthKey;
+                const clickedKey = e.activePayload[0].payload?.monthKey;
                 if (clickedKey) setSelectedMonth(clickedKey);
               }
             }}
