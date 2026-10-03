@@ -1,46 +1,76 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { X, Check, PiggyBank, User, Users, Lock, ShieldCheck } from 'lucide-react';
+import { 
+  X, 
+  Check, 
+  PiggyBank, 
+  User, 
+  Users, 
+  Lock, 
+  ChevronLeft, 
+  ChevronRight, 
+  Calendar, 
+  RotateCcw 
+} from 'lucide-react';
 import { getCurrencySymbol } from '../../utils/formatters';
 
 interface BudgetSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialMonth?: string;
 }
 
 export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   isOpen,
   onClose,
+  initialMonth,
 }) => {
-  const { budgets, updateBudgets, currentUser, partner, currency, vault } = useFinance();
+  const { budgets, updateBudgets, getBudgetForMonth, currentUser, partner, currency, selectedMonth } = useFinance();
 
-  // Accurately resolve currentUser's individual budget and partner's individual budget by unique userId
-  const currentUserId = currentUser?.id;
-  const partnerId = partner?.id;
-
-  const myCurrentBudget = Number(
-    (currentUserId ? budgets.userBudgets?.[currentUserId] : undefined) 
-    ?? budgets.me 
-    ?? 0
-  );
-
-  const partnerCurrentBudget = Number(
-    (partnerId ? budgets.userBudgets?.[partnerId] : undefined)
-    ?? budgets.partner 
-    ?? 0
-  );
-
+  const [monthKey, setMonthKey] = useState<string>(() => initialMonth || selectedMonth || new Date().toISOString().slice(0, 7));
   const [coupleBudget, setCoupleBudget] = useState('0');
   const [myBudget, setMyBudget] = useState('0');
+  const [setAsDefault, setSetAsDefault] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setCoupleBudget((budgets.couple || 0).toString());
-      setMyBudget((myCurrentBudget || 0).toString());
+      const activeMonth = initialMonth || selectedMonth || new Date().toISOString().slice(0, 7);
+      setMonthKey(activeMonth);
     }
-  }, [isOpen, budgets.couple, myCurrentBudget]);
+  }, [isOpen, initialMonth, selectedMonth]);
+
+  // Load budgets whenever monthKey or budgets change
+  const currentMonthBudget = useMemo(() => {
+    return getBudgetForMonth(monthKey);
+  }, [getBudgetForMonth, monthKey, budgets]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCoupleBudget((currentMonthBudget.coupleLimit || 0).toString());
+      setMyBudget((currentMonthBudget.myLimit || 0).toString());
+    }
+  }, [isOpen, currentMonthBudget]);
 
   if (!isOpen || !currentUser) return null;
+
+  const handlePrevMonth = () => {
+    const [y, m] = monthKey.split('-').map(Number);
+    const prevDate = new Date(y, m - 2, 1);
+    const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    setMonthKey(prevKey);
+  };
+
+  const handleNextMonth = () => {
+    const [y, m] = monthKey.split('-').map(Number);
+    const nextDate = new Date(y, m, 1);
+    const nextKey = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+    setMonthKey(nextKey);
+  };
+
+  const formattedMonthName = (() => {
+    const [y, m] = monthKey.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  })();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,12 +80,22 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
     updateBudgets({
       couple: cVal,
       myBudget: mVal,
+      month: monthKey,
+      isDefault: setAsDefault,
     });
 
     onClose();
   };
 
+  const handleResetToDefault = () => {
+    const defaultCouple = budgets.couple || 0;
+    const defaultMy = (currentUser.id ? budgets.userBudgets?.[currentUser.id] : undefined) ?? budgets.me ?? 0;
+    setCoupleBudget(defaultCouple.toString());
+    setMyBudget(defaultMy.toString());
+  };
+
   const currencySymbol = getCurrencySymbol(currency);
+  const partnerLimit = currentMonthBudget.partnerLimit || 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -68,7 +108,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">Monthly Budget Limits</h2>
-              <p className="text-[11px] text-slate-400">Joint budget & isolated personal limits (0 = unlimited)</p>
+              <p className="text-[11px] text-slate-400">Month-by-month limits & joint targets (0 = unlimited)</p>
             </div>
           </div>
           <button
@@ -79,6 +119,41 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
           </button>
         </div>
 
+        {/* Month Selector Bar */}
+        <div className="mt-4 p-3 rounded-2xl bg-slate-950/80 border border-white/10 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handlePrevMonth}
+            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+            title="Previous Month"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          <div className="flex flex-col items-center">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+              <Calendar className="w-3.5 h-3.5 text-amber-400" />
+              <span>{formattedMonthName}</span>
+            </div>
+            <span className={`text-[10px] font-semibold mt-0.5 px-2 py-0.2 rounded-full ${
+              currentMonthBudget.isCustomMonth 
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                : 'text-slate-400'
+            }`}>
+              {currentMonthBudget.isCustomMonth ? 'Custom Month Limit' : 'Inheriting Default Limit'}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleNextMonth}
+            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+            title="Next Month"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Couple Joint Monthly Budget (Both partners can set/modify) */}
           <div className="p-3.5 rounded-2xl bg-slate-800/40 border border-indigo-500/20 space-y-2">
@@ -86,7 +161,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
               <div className="flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-indigo-400" />
                 <label className="text-xs font-bold text-white">
-                  Couple Joint Monthly Budget
+                  Couple Joint Budget ({formattedMonthName})
                 </label>
               </div>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -108,7 +183,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
               />
             </div>
             <p className="text-[10px] text-slate-400">
-              Combined spending limit for both partners per month. Either partner can set or adjust this.
+              Combined spending limit for both partners in {formattedMonthName}. Either partner can adjust this.
             </p>
           </div>
 
@@ -140,7 +215,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
               />
             </div>
             <p className="text-[10px] text-slate-400">
-              Your personal spending limit. Your partner cannot modify this value.
+              Your personal spending limit for {formattedMonthName}.
             </p>
           </div>
 
@@ -165,15 +240,39 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
                 <input
                   type="number"
                   disabled
-                  value={partnerCurrentBudget}
+                  value={partnerLimit}
                   className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-950/60 border border-white/5 text-slate-400 font-bold text-sm cursor-not-allowed"
                 />
               </div>
               <p className="text-[10px] text-slate-500">
-                Only {partner.name} can configure their personal monthly budget. You cannot modify it.
+                Only {partner.name} can configure their personal limit for {formattedMonthName}.
               </p>
             </div>
           )}
+
+          {/* Optional: Reset to Default and Set as Default Toggle */}
+          <div className="flex flex-col gap-2 pt-1">
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={setAsDefault}
+                onChange={(e) => setSetAsDefault(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-white/20"
+              />
+              <span>Also save these limits as the default for all future months</span>
+            </label>
+
+            {currentMonthBudget.isCustomMonth && (
+              <button
+                type="button"
+                onClick={handleResetToDefault}
+                className="text-[11px] text-amber-400/90 hover:text-amber-300 flex items-center gap-1 self-start pt-1"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset inputs to default budget values</span>
+              </button>
+            )}
+          </div>
 
           {/* Save Button */}
           <button
@@ -181,7 +280,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
             className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 mt-2"
           >
             <Check className="w-4 h-4 stroke-[2.5]" />
-            <span>Save Monthly Budgets</span>
+            <span>Save Budget for {formattedMonthName}</span>
           </button>
         </form>
       </div>

@@ -23,11 +23,19 @@ export interface CoupleVault {
   createdAt: string;
 }
 
+export interface MonthlyBudgetRecord {
+  couple: number;
+  me?: number;
+  partner?: number;
+  userBudgets?: Record<string, number>;
+}
+
 export interface BudgetsConfig {
   couple: number;
   me?: number;
   partner?: number;
   userBudgets?: Record<string, number>;
+  monthlyBudgets?: Record<string, MonthlyBudgetRecord>;
 }
 
 export interface Category {

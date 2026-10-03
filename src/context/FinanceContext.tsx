@@ -61,7 +61,8 @@ interface FinanceContextType {
 
   // Budgets (default 0)
   budgets: BudgetsConfig;
-  updateBudgets: (newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => void;
+  updateBudgets: (newBudgets: Partial<BudgetsConfig> & { myBudget?: number; month?: string; isDefault?: boolean }) => void;
+  getBudgetForMonth: (monthKey: string) => { coupleLimit: number; myLimit: number; partnerLimit: number; isCustomMonth: boolean };
 
   // Auth
   completeOnboarding: (user: UserProfile, vault: CoupleVault) => Promise<void>;
@@ -724,27 +725,103 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   /* ─── Budgets ─────────────────────────────────────────────────────────── */
-  const updateBudgets = useCallback((newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => {
-    if (!currentUserRef.current) return;
-    const currentUserId = currentUserRef.current.id;
-    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {} };
-    const updatedUserBudgets: Record<string, number> = { ...(activeBudgets.userBudgets || {}) };
-
-    // Update currentUser's personal budget if provided
-    if (newBudgets.myBudget !== undefined) {
-      updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
-    } else if (newBudgets.me !== undefined) {
-      updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
-    }
-
-    // Couple budget is joint: either partner can set or modify it!
-    const newCouple = newBudgets.couple !== undefined
-      ? Math.max(0, newBudgets.couple)
-      : (activeBudgets.couple || 0);
-
-    // Partner's budget is strictly preserved (read-only for current user)
+  const getBudgetForMonth = useCallback((monthKey: string) => {
+    const currentUserId = currentUserRef.current?.id;
     const activeVaultForPartner = vaultRef.current || vault;
     const partnerId = partner?.id || (activeVaultForPartner?.partner1?.id === currentUserId ? activeVaultForPartner?.partner2?.id : activeVaultForPartner?.partner1?.id);
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, monthlyBudgets: {} };
+
+    const monthConfig = activeBudgets.monthlyBudgets?.[monthKey];
+    if (monthConfig) {
+      const coupleLimit = Number(monthConfig.couple ?? activeBudgets.couple ?? 0);
+      const myLimit = Number(
+        (currentUserId ? monthConfig.userBudgets?.[currentUserId] : undefined)
+        ?? monthConfig.me
+        ?? (currentUserId ? activeBudgets.userBudgets?.[currentUserId] : undefined)
+        ?? activeBudgets.me
+        ?? 0
+      );
+      const partnerLimit = Number(
+        (partnerId ? monthConfig.userBudgets?.[partnerId] : undefined)
+        ?? monthConfig.partner
+        ?? (partnerId ? activeBudgets.userBudgets?.[partnerId] : undefined)
+        ?? activeBudgets.partner
+        ?? 0
+      );
+      return { coupleLimit, myLimit, partnerLimit, isCustomMonth: true };
+    }
+
+    const coupleLimit = Number(activeBudgets.couple || 0);
+    const myLimit = Number(
+      (currentUserId ? activeBudgets.userBudgets?.[currentUserId] : undefined)
+      ?? activeBudgets.me
+      ?? 0
+    );
+    const partnerLimit = Number(
+      (partnerId ? activeBudgets.userBudgets?.[partnerId] : undefined)
+      ?? activeBudgets.partner
+      ?? 0
+    );
+    return { coupleLimit, myLimit, partnerLimit, isCustomMonth: false };
+  }, [vault, partner]);
+
+  const updateBudgets = useCallback((newBudgets: Partial<BudgetsConfig> & { myBudget?: number; month?: string; isDefault?: boolean }) => {
+    if (!currentUserRef.current) return;
+    const currentUserId = currentUserRef.current.id;
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, monthlyBudgets: {} };
+    const updatedUserBudgets: Record<string, number> = { ...(activeBudgets.userBudgets || {}) };
+    const updatedMonthlyBudgets = { ...(activeBudgets.monthlyBudgets || {}) };
+
+    const activeVaultForPartner = vaultRef.current || vault;
+    const partnerId = partner?.id || (activeVaultForPartner?.partner1?.id === currentUserId ? activeVaultForPartner?.partner2?.id : activeVaultForPartner?.partner1?.id);
+
+    // If month is provided, update that month's specific budget
+    if (newBudgets.month) {
+      const targetMonth = newBudgets.month;
+      const existingMonth = updatedMonthlyBudgets[targetMonth] || {
+        couple: activeBudgets.couple || 0,
+        userBudgets: { ...(activeBudgets.userBudgets || {}) },
+        me: activeBudgets.me || 0,
+        partner: activeBudgets.partner || 0,
+      };
+
+      const monthUserBudgets: Record<string, number> = { ...(existingMonth.userBudgets || {}) };
+
+      if (newBudgets.myBudget !== undefined) {
+        monthUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
+      } else if (newBudgets.me !== undefined) {
+        monthUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
+      }
+
+      const monthCouple = newBudgets.couple !== undefined
+        ? Math.max(0, newBudgets.couple)
+        : (existingMonth.couple || 0);
+
+      const monthMyAmount = monthUserBudgets[currentUserId] || 0;
+      const monthPartnerAmount = partnerId ? (monthUserBudgets[partnerId] || 0) : (existingMonth.partner || 0);
+
+      updatedMonthlyBudgets[targetMonth] = {
+        couple: monthCouple,
+        userBudgets: monthUserBudgets,
+        me: monthMyAmount,
+        partner: monthPartnerAmount,
+      };
+    }
+
+    // If no month is specified OR isDefault is true, update the base/default budget
+    let newCouple = activeBudgets.couple || 0;
+    if (!newBudgets.month || newBudgets.isDefault) {
+      if (newBudgets.myBudget !== undefined) {
+        updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
+      } else if (newBudgets.me !== undefined) {
+        updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
+      }
+
+      newCouple = newBudgets.couple !== undefined
+        ? Math.max(0, newBudgets.couple)
+        : (activeBudgets.couple || 0);
+    }
+
     const myAmount = updatedUserBudgets[currentUserId] || 0;
     const partnerAmount = partnerId ? (updatedUserBudgets[partnerId] || 0) : (activeBudgets.partner || 0);
 
@@ -753,6 +830,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       userBudgets: updatedUserBudgets,
       me: myAmount,
       partner: partnerAmount,
+      monthlyBudgets: updatedMonthlyBudgets,
     };
 
     setBudgets(safeBudgets);
@@ -773,8 +851,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ budgets: safeBudgets });
-    showToast('Monthly budgets saved successfully', 'success');
-  }, [partner, triggerSyncFlash, pushToCloud, showToast]);
+    
+    if (newBudgets.month) {
+      showToast(`Budget for ${newBudgets.month} saved successfully`, 'success');
+    } else {
+      showToast('Monthly budgets saved successfully', 'success');
+    }
+  }, [partner, vault, triggerSyncFlash, pushToCloud, showToast]);
 
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
@@ -1628,7 +1711,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         authError,
         toast, showToast, dismissToast,
         selectedMonth, setSelectedMonth, goToPreviousMonth, goToNextMonth,
-        budgets, updateBudgets,
+        budgets, updateBudgets, getBudgetForMonth,
         completeOnboarding,
         signOut: handleSignOut,
         setActiveTab, setViewMode, setCurrency,

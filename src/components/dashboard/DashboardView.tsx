@@ -47,6 +47,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setActiveTab,
     selectedMonth,
     budgets,
+    getBudgetForMonth,
     toggleFlagTransaction,
     vault
   } = useFinance();
@@ -111,18 +112,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const monthlySavings = monthlyIncome - monthlyExpense;
   const savingsRate = monthlyIncome > 0 ? Math.round((monthlySavings / monthlyIncome) * 100) : 0;
 
-  // Budget calculations mapped accurately by user ID
-  const coupleLimit = Number(budgets.couple || 0);
-  const myLimit = Number(
-    (currentUser?.id ? budgets.userBudgets?.[currentUser.id] : undefined) 
-    ?? budgets.me 
-    ?? 0
-  );
-  const partnerLimit = Number(
-    (partner?.id ? budgets.userBudgets?.[partner.id] : undefined) 
-    ?? budgets.partner 
-    ?? 0
-  );
+  // Budget calculations mapped accurately by user ID and month
+  const monthBudget = getBudgetForMonth(selectedMonth);
+  const coupleLimit = monthBudget.coupleLimit;
+  const myLimit = monthBudget.myLimit;
+  const partnerLimit = monthBudget.partnerLimit;
 
   const couplePercent = coupleLimit > 0 ? Math.round((totalCoupleExpense / coupleLimit) * 100) : 0;
   const myPercent = myLimit > 0 ? Math.round((myExpense / myLimit) * 100) : 0;
@@ -667,6 +661,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <BudgetSettingsModal
         isOpen={isBudgetModalOpen}
         onClose={() => setIsBudgetModalOpen(false)}
+        initialMonth={selectedMonth}
       />
     </div>
   );

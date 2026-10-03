@@ -23,10 +23,14 @@ import {
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { GoalStatsCard } from '../goals/GoalStatsCard';
 import { CategoryExpenseBarCard } from './CategoryExpenseBarCard';
+import { BudgetLimitStatsCard } from './BudgetLimitStatsCard';
+import { BudgetSettingsModal } from '../dashboard/BudgetSettingsModal';
 
 export const StatisticsView: React.FC = () => {
-  const { transactions, categories, goals, stocks, currency, currentUser, partner } = useFinance();
+  const { transactions, categories, goals, stocks, currency, currentUser, partner, budgets, getBudgetForMonth } = useFinance();
   const [timeframe, setTimeframe] = useState<'monthly' | 'yearly'>('monthly');
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [budgetModalMonth, setBudgetModalMonth] = useState<string | undefined>(undefined);
 
   const currencySymbol = getCurrencySymbol(currency);
 
@@ -279,7 +283,22 @@ export const StatisticsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. GOAL DEFICIT: HOW MUCH AMOUNT IS NEEDED MORE (User Key Requirement) */}
+      {/* 3. MONTHLY BUDGET LIMIT VS ACTUAL SPEND (INDIVIDUAL & COMBINED) */}
+      <BudgetLimitStatsCard
+        transactions={transactions}
+        categories={categories}
+        budgets={budgets}
+        getBudgetForMonth={getBudgetForMonth}
+        currency={currency}
+        currentUser={currentUser}
+        partner={partner}
+        onOpenBudgetModal={(monthKey) => {
+          setBudgetModalMonth(monthKey);
+          setIsBudgetModalOpen(true);
+        }}
+      />
+
+      {/* 4. GOAL DEFICIT: HOW MUCH AMOUNT IS NEEDED MORE (User Key Requirement) */}
       <div className="glass-card p-5 rounded-3xl border border-white/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -435,6 +454,13 @@ export const StatisticsView: React.FC = () => {
         mySavings={mySavings}
         partnerSavings={partnerSavings}
         totalSavingsTogether={totalSavingsTogether}
+      />
+
+      {/* Budget Limits Settings Modal */}
+      <BudgetSettingsModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)}
+        initialMonth={budgetModalMonth}
       />
     </div>
   );
