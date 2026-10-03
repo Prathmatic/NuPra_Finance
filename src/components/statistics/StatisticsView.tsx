@@ -11,25 +11,21 @@ import {
   Pie, 
   Cell, 
   Legend, 
-  CartesianGrid, 
-  AreaChart, 
-  Area 
+  CartesianGrid 
 } from 'recharts';
 import { 
   BarChart3, 
   PieChart as PieIcon, 
   Target, 
   TrendingUp, 
-  Calendar, 
-  DollarSign, 
-  Sparkles,
-  Users
+  DollarSign
 } from 'lucide-react';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { GoalStatsCard } from '../goals/GoalStatsCard';
+import { CategoryExpenseBarCard } from './CategoryExpenseBarCard';
 
 export const StatisticsView: React.FC = () => {
-  const { transactions, goals, stocks, currency, currentUser, partner } = useFinance();
+  const { transactions, categories, goals, stocks, currency, currentUser, partner } = useFinance();
   const [timeframe, setTimeframe] = useState<'monthly' | 'yearly'>('monthly');
 
   const currencySymbol = getCurrencySymbol(currency);
@@ -372,7 +368,16 @@ export const StatisticsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. CATEGORY SPENDING PIE CHART */}
+      {/* 5. INDIVIDUAL CATEGORY EXPENSE BREAKDOWN (BAR CHART) */}
+      <CategoryExpenseBarCard
+        transactions={transactions}
+        categories={categories}
+        currency={currency}
+        currentUser={currentUser}
+        partner={partner}
+      />
+
+      {/* 6. OVERALL CATEGORY DISTRIBUTION (PIE CHART) */}
       <div className="glass-card p-5 rounded-3xl border border-white/10 space-y-3">
         <div className="flex items-center gap-2">
           <div className="p-1.5 rounded-xl bg-pink-500/20 text-pink-400">
@@ -380,9 +385,9 @@ export const StatisticsView: React.FC = () => {
           </div>
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-white">
-              Category Expense Breakdown
+              Category Spending Share
             </h3>
-            <p className="text-[11px] text-slate-400">Where does your couple money go?</p>
+            <p className="text-[11px] text-slate-400">Macro proportion of couple expenses</p>
           </div>
         </div>
 
