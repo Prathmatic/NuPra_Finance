@@ -12,9 +12,10 @@ import { NPIcon } from '../common/NPIcon';
 interface AppHeaderProps {
   onOpenProfile: () => void;
   onOpenAddModal: () => void;
+  onReplaySplash?: () => void;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile }) => {
+export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySplash }) => {
   const { 
     currentUser, 
     partner, 
@@ -42,7 +43,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile }) => {
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
         {/* App Brand with NP Monogram */}
         <div className="flex items-center gap-2.5">
-          <NPIcon size="md" />
+          <button
+            type="button"
+            onClick={onReplaySplash}
+            title="Replay NP Intro Animation"
+            className="hover:scale-105 active:scale-95 transition-transform cursor-pointer rounded-2xl focus:outline-none"
+          >
+            <NPIcon size="md" />
+          </button>
           <div className="flex items-center gap-2">
             <h1 className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
               NuPra Finance
