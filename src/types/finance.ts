@@ -88,6 +88,8 @@ export interface Transaction {
   flaggedByUserName?: string;
   flaggedAt?: string;
   comments?: TransactionComment[];
+  goalId?: string;
+  goalTitle?: string;
 }
 
 export interface GoalContribution {

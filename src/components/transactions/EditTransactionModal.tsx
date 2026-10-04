@@ -6,11 +6,12 @@ import {
   Trash2, 
   ArrowDownCircle, 
   ArrowUpCircle,
-  Users
+  Users,
+  Target
 } from 'lucide-react';
 import { Transaction, PaymentMethod } from '../../types/finance';
 import { CategoryDropdown } from '../categories/CategoryDropdown';
-import { getCurrencySymbol } from '../../utils/formatters';
+import { getCurrencySymbol, getGoalSavingsTitle } from '../../utils/formatters';
 
 interface EditTransactionModalProps {
   transaction: Transaction | null;
@@ -68,6 +69,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   if (!isOpen || !transaction || !currentUser) return null;
   // Safety guard: Cannot edit partner's transaction
   if (transaction.userId !== currentUser.id) return null;
+
+  const { goalName, isGoalSavings } = getGoalSavingsTitle(transaction);
 
   const currentCategories = categories.filter(
     c => c.type === 'both' || c.type === type
@@ -131,6 +134,25 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isGoalSavings && (
+          <div className="mt-3.5 p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex items-center gap-2.5 text-xs">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <Target className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 block">
+                Linked to Savings Goal
+              </span>
+              <p className="font-bold text-white truncate text-xs">
+                {goalName || 'Couples Savings Goal'}
+              </p>
+              <p className="text-[11px] text-slate-300 truncate">
+                {transaction.notes || 'Goal contribution expense'}
+              </p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Expense vs Income Toggle */}

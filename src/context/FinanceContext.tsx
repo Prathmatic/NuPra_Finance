@@ -1081,15 +1081,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
     const transaction: Transaction = {
       id: createRecordId('tx'),
-      title: `Goal Savings: ${existingGoal.title}`,
+      title: 'Goal Savings',
+      goalId: existingGoal.id,
+      goalTitle: existingGoal.title,
       amount, type: 'expense',
-      categoryId: 'cat-investment', categoryName: 'Investment',
-      categoryColor: '#3B82F6', categoryIcon: 'TrendingUp',
+      categoryId: 'cat-investment', categoryName: 'Goal Savings',
+      categoryColor: existingGoal.color || '#10B981', categoryIcon: 'Target',
       paymentMethod: 'Bank Transfer',
       date: new Date().toISOString().split('T')[0],
       userId: currentUser.id, userName: currentUser.name,
       userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
-      isShared: true, notes: note || 'Contribution towards couple goal',
+      isShared: true, notes: note || `Contribution towards goal: ${existingGoal.title}`,
       createdAt: new Date().toISOString(),
     };
     pendingCreatedTxIdsRef.current.add(transaction.id);

@@ -3,7 +3,7 @@ import { useFinance } from '../../context/FinanceContext';
 import { X, Sparkles, PlusCircle, Wallet, AlertCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { FinanceGoal } from '../../types/finance';
-import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
+import { formatCurrency, getCurrencySymbol, isGoalSavingsTx } from '../../utils/formatters';
 
 interface ContributeModalProps {
   goal: FinanceGoal | null;
@@ -32,9 +32,8 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
   // Calculate how much I've already contributed to all goals (total locked-in savings)
   const myTotalGoalContributions = useMemo(() => {
     if (!currentUser) return 0;
-    // We look at transactions with title starting "Goal Savings:" for current user
     return transactions
-      .filter(tx => tx.userId === currentUser.id && tx.title?.startsWith('Goal Savings:') && tx.type === 'expense')
+      .filter(tx => tx.userId === currentUser.id && isGoalSavingsTx(tx) && tx.type === 'expense')
       .reduce((sum, tx) => sum + tx.amount, 0);
   }, [transactions, currentUser]);
 

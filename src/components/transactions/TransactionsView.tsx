@@ -10,9 +10,10 @@ import {
   FileText,
   Lock,
   Flag,
-  MessageSquare
+  MessageSquare,
+  Target
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate, getGoalSavingsTitle } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
 import { MonthNavigator } from '../common/MonthNavigator';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -299,6 +300,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
             const isExpanded = expandedTxId === tx.id;
             const isFlagged = Boolean(tx.isFlagged);
             const commentsCount = tx.comments?.length || 0;
+            const { displayTitle, isGoalSavings } = getGoalSavingsTitle(tx);
 
             return (
               <div
@@ -308,41 +310,64 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                     ? 'border-amber-500/40 bg-amber-950/10' 
                     : isExpanded 
                     ? 'border-indigo-500/40 bg-slate-900/90' 
+                    : isGoalSavings
+                    ? 'border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/30'
                     : 'border-white/5 hover:border-white/15'
                 }`}
               >
                 <div 
                   onClick={() => {
-                    if (isMyTx) setEditingTx(tx);
-                    else setExpandedTxId(isExpanded ? null : tx.id);
+                    if (isGoalSavings) {
+                      setExpandedTxId(isExpanded ? null : tx.id);
+                    } else if (isMyTx) {
+                      setEditingTx(tx);
+                    } else {
+                      setExpandedTxId(isExpanded ? null : tx.id);
+                    }
                   }}
-                  className={`flex items-center justify-between ${isMyTx ? 'cursor-pointer' : 'cursor-pointer'}`}
-                  title={isMyTx ? "Click to edit (or use comment button below)" : "Click to view discussion & comments"}
+                  className="flex items-center justify-between gap-3 cursor-pointer"
+                  title={
+                    isGoalSavings
+                      ? "Click to view goal details & discussion"
+                      : isMyTx 
+                      ? "Click to edit (or use comment button below)" 
+                      : "Click to view discussion & comments"
+                  }
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div
                       className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+                      style={{ 
+                        backgroundColor: isGoalSavings ? 'rgba(16, 185, 129, 0.15)' : `${tx.categoryColor}25`, 
+                        color: isGoalSavings ? '#10B981' : tx.categoryColor 
+                      }}
                     >
-                      <CategoryIcon name={tx.categoryIcon} size={18} />
+                      <CategoryIcon name={isGoalSavings ? 'Target' : tx.categoryIcon} size={18} />
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
-                        <span 
-                          className="text-[9px] px-1.5 py-0.5 rounded-md font-semibold"
-                          style={{ backgroundColor: `${tx.categoryColor}20`, color: tx.categoryColor }}
-                        >
-                          {tx.categoryName}
-                        </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <p className="text-xs font-bold text-white truncate max-w-[140px] sm:max-w-xs">{displayTitle}</p>
+                        {isGoalSavings ? (
+                          <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold flex items-center gap-1 shrink-0">
+                            <Target className="w-2.5 h-2.5" />
+                            <span>Goal</span>
+                          </span>
+                        ) : (
+                          <span 
+                            className="text-[9px] px-1.5 py-0.5 rounded-md font-semibold shrink-0"
+                            style={{ backgroundColor: `${tx.categoryColor}20`, color: tx.categoryColor }}
+                          >
+                            {tx.categoryName}
+                          </span>
+                        )}
                         {isFlagged && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1 shrink-0">
                             <Flag className="w-2.5 h-2.5 fill-amber-400" />
                             <span>Flagged</span>
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1 truncate">
                         <span>{formatDate(tx.date)}</span>
                         {tx.paymentMethod && tx.paymentMethod !== 'None' && (
                           <>
@@ -350,14 +375,20 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                             <span>{tx.paymentMethod}</span>
                           </>
                         )}
+                        {isGoalSavings && (
+                          <>
+                            <span>•</span>
+                            <span className="text-emerald-400 font-medium">Goal Allocation</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <div className="text-right">
                       <p className={`text-xs font-black ${
-                        tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
+                        tx.type === 'income' ? 'text-emerald-400' : isGoalSavings ? 'text-emerald-300' : 'text-slate-200'
                       }`}>
                         {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
                       </p>

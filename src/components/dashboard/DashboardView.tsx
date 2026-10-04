@@ -16,7 +16,7 @@ import {
   MessageSquare,
   Lock
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate, getGoalSavingsTitle } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
 import { MonthNavigator } from '../common/MonthNavigator';
 import { BudgetSettingsModal } from './BudgetSettingsModal';
@@ -518,6 +518,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               const isExpanded = expandedTxId === tx.id;
               const isFlagged = Boolean(tx.isFlagged);
               const commentsCount = tx.comments?.length || 0;
+              const { displayTitle, isGoalSavings } = getGoalSavingsTitle(tx);
 
               return (
                 <div
@@ -527,35 +528,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       ? 'border-amber-500/40 bg-amber-950/10' 
                       : isExpanded 
                       ? 'border-indigo-500/40 bg-slate-900/90' 
+                      : isGoalSavings
+                      ? 'border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/30'
                       : 'border-white/5 hover:border-white/10'
                   }`}
                 >
                   <div
                     onClick={() => {
-                      if (isMyTx) setEditingTransaction(tx);
-                      else setExpandedTxId(isExpanded ? null : tx.id);
+                      if (isGoalSavings) {
+                        setExpandedTxId(isExpanded ? null : tx.id);
+                      } else if (isMyTx) {
+                        setEditingTransaction(tx);
+                      } else {
+                        setExpandedTxId(isExpanded ? null : tx.id);
+                      }
                     }}
-                    className="flex items-center justify-between cursor-pointer"
-                    title={isMyTx ? "Tap to edit (or use comment button below)" : "Tap to view discussion & comments"}
+                    className="flex items-center justify-between gap-3 cursor-pointer"
+                    title={
+                      isGoalSavings
+                        ? "Tap to view goal details & discussion"
+                        : isMyTx 
+                        ? "Tap to edit (or use comment button below)" 
+                        : "Tap to view discussion & comments"
+                    }
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div
                         className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: `${tx.categoryColor}25`, color: tx.categoryColor }}
+                        style={{ 
+                          backgroundColor: isGoalSavings ? 'rgba(16, 185, 129, 0.15)' : `${tx.categoryColor}25`, 
+                          color: isGoalSavings ? '#10B981' : tx.categoryColor 
+                        }}
                       >
-                        <CategoryIcon name={tx.categoryIcon} size={18} />
+                        <CategoryIcon name={isGoalSavings ? 'Target' : tx.categoryIcon} size={18} />
                       </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <p className="text-xs font-bold text-white truncate max-w-[130px] sm:max-w-xs">{displayTitle}</p>
+                          {isGoalSavings && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold flex items-center gap-1 shrink-0">
+                              <Target className="w-2.5 h-2.5" />
+                              <span>Goal</span>
+                            </span>
+                          )}
                           {isFlagged && (
-                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1">
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1 shrink-0">
                               <Flag className="w-2.5 h-2.5 fill-amber-400" />
                               <span>Flagged</span>
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 truncate">
                           <span>{formatDate(tx.date)}</span>
                           {tx.paymentMethod && tx.paymentMethod !== 'None' && (
                             <>
@@ -564,15 +587,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             </>
                           )}
                           <span>•</span>
-                          <span className="text-slate-400 font-medium">{tx.categoryName}</span>
+                          <span className={isGoalSavings ? "text-emerald-400 font-medium" : "text-slate-400 font-medium"}>
+                            {isGoalSavings ? "Goal Allocation" : tx.categoryName}
+                          </span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <div className="text-right">
                         <p className={`text-xs font-black ${
-                          tx.type === 'income' ? 'text-emerald-400' : 'text-slate-200'
+                          tx.type === 'income' ? 'text-emerald-400' : isGoalSavings ? 'text-emerald-300' : 'text-slate-200'
                         }`}>
                           {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
                         </p>
@@ -627,9 +652,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </button>
 
                         {isMyTx ? (
-                          <div className="p-1 rounded-lg text-slate-500 hover:text-indigo-400 transition-colors">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTransaction(tx);
+                            }}
+                            className="p-1 rounded-lg text-slate-500 hover:text-indigo-400 transition-colors"
+                            title="Edit transaction details"
+                          >
                             <Edit2 className="w-3.5 h-3.5" />
-                          </div>
+                          </button>
                         ) : (
                           <div className="p-1 text-slate-600" title={`Recorded by ${tx.userName} (Read-only)`}>
                             <Lock className="w-3.5 h-3.5" />

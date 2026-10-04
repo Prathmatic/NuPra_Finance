@@ -39,3 +39,54 @@ export const formatMonthYear = (monthYearStr: string): string => {
     year: 'numeric',
   });
 };
+
+export const isGoalSavingsTx = (tx?: { title?: string; goalId?: string }): boolean => {
+  if (!tx) return false;
+  if (tx.goalId) return true;
+  const rawTitle = (tx.title || '').trim();
+  return (
+    rawTitle === 'Goal Savings' ||
+    rawTitle.startsWith('Goal Savings:') ||
+    rawTitle === 'Goal Contribution' ||
+    rawTitle.startsWith('Goal Contribution:')
+  );
+};
+
+export const getGoalSavingsTitle = (tx?: { title?: string; goalId?: string; goalTitle?: string }): {
+  displayTitle: string;
+  goalName: string;
+  isGoalSavings: boolean;
+} => {
+  if (!tx) return { displayTitle: '', goalName: '', isGoalSavings: false };
+  const rawTitle = (tx.title || '').trim();
+  const isGoal = Boolean(
+    tx.goalId ||
+    rawTitle === 'Goal Savings' ||
+    rawTitle.startsWith('Goal Savings:') ||
+    rawTitle === 'Goal Contribution' ||
+    rawTitle.startsWith('Goal Contribution:')
+  );
+
+  if (isGoal) {
+    let goalName = tx.goalTitle || '';
+    if (!goalName) {
+      if (rawTitle.startsWith('Goal Savings:')) {
+        goalName = rawTitle.replace(/^Goal Savings:\s*/i, '').trim();
+      } else if (rawTitle.startsWith('Goal Contribution:')) {
+        goalName = rawTitle.replace(/^Goal Contribution:\s*/i, '').trim();
+      }
+    }
+    return {
+      displayTitle: 'Goal Savings',
+      goalName,
+      isGoalSavings: true,
+    };
+  }
+
+  return {
+    displayTitle: rawTitle,
+    goalName: '',
+    isGoalSavings: false,
+  };
+};
+
