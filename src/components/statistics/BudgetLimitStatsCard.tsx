@@ -23,6 +23,7 @@ import {
   ChevronRight, 
   Calendar, 
   Edit3 
+} from 'lucide-react';
 import { Transaction, Category, CurrencyCode, UserProfile, BudgetsConfig } from '../../types/finance';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
