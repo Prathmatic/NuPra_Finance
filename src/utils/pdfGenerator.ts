@@ -317,63 +317,143 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
 }
 
 /**
- * Triggers a direct browser download of the generated PDF file.
+ * Triggers a download or mobile share of the generated PDF file.
+ * Automatically utilizes Web Share API with File support on mobile devices (Android/iOS)
+ * to open the native system Save / Open with PDF Viewer / Share sheet,
+ * falling back to standard browser downloads.
  */
-export function downloadStatementPdf(statement: StatementData, fileName: string): void {
+export async function downloadStatementPdf(statement: StatementData, fileName: string): Promise<boolean> {
+  const cleanFileName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
   const blob = generateStatementPdfBlob(statement);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  // 1. Mobile (Android/iOS): Web Share API with File support
+  // In Capacitor / Android WebViews, <a download> does not trigger file download for blob URLs.
+  // navigator.share({ files: [file] }) natively triggers Android's System Share & Save Dialog!
+  try {
+    const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+    if (nav && typeof nav.canShare === 'function' && typeof nav.share === 'function') {
+      const file = new File([blob], cleanFileName, { type: 'application/pdf' });
+      if (nav.canShare({ files: [file] })) {
+        await nav.share({
+          files: [file],
+          title: cleanFileName,
+          text: `NuPra Finance Statement: ${statement.scopeLabel} (${statement.periodLabel})`,
+        });
+        return true;
+      }
+    }
+  } catch (shareErr: any) {
+    if (shareErr?.name === 'AbortError') {
+      // User dismissed the native share sheet
+      return true;
+    }
+    console.warn('Web Share API failed, trying direct browser download:', shareErr);
+  }
+
+  // 2. Standard Browser direct download link (Desktop / Chrome / Firefox)
+  try {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', cleanFileName);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    return true;
+  } catch (downloadErr) {
+    console.warn('Blob URL download failed, trying data URI fallback:', downloadErr);
+  }
+
+  // 3. Fallback: Base64 Data URI for mobile browsers / WebViews that block blob: downloads
+  try {
+    return new Promise<boolean>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        try {
+          const base64Url = reader.result as string;
+          const link = document.createElement('a');
+          link.href = base64Url;
+          link.setAttribute('download', cleanFileName);
+          link.target = '_blank';
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          resolve(true);
+        } catch (innerErr) {
+          console.error('Data URI download failed:', innerErr);
+          resolve(false);
+        }
+      };
+      reader.onerror = () => resolve(false);
+      reader.readAsDataURL(blob);
+    });
+  } catch (dataErr) {
+    console.error('All PDF download strategies failed:', dataErr);
+    return false;
+  }
 }
 
 /**
- * Opens print view via a hidden iframe, avoiding browser popup blockers.
+ * Opens print view via a hidden iframe or new window, triggering native print/save dialogs.
  */
 export function printStatementHtml(html: string): void {
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  document.body.appendChild(iframe);
+  // 1. Try hidden iframe first
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
 
-  const doc = iframe.contentWindow?.document || iframe.contentDocument;
-  if (!doc) {
-    // Fallback if iframe document not accessible
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (e) {
+          console.error('Print iframe error:', e);
+        } finally {
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 2000);
+        }
+      }, 300);
+      return;
+    }
+  } catch (iframeErr) {
+    console.warn('Hidden iframe print failed, trying window fallback:', iframeErr);
+  }
+
+  // 2. Fallback to window.open (especially for mobile WebViews)
+  try {
     const win = window.open('', '_blank');
     if (win) {
       win.document.open();
       win.document.write(html);
       win.document.close();
       win.focus();
-      win.print();
-    }
-    return;
-  }
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch (e) {
-      console.error('Print iframe error:', e);
-    } finally {
       setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
+        try {
+          win.print();
+        } catch (e) {
+          console.warn('Window print failed:', e);
         }
-      }, 1500);
+      }, 300);
     }
-  }, 250);
+  } catch (winErr) {
+    console.error('Print window error:', winErr);
+  }
 }

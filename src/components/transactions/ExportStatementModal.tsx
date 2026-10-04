@@ -1,20 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { 
   X, 
   FileText, 
   Download, 
   Printer, 
-  Calendar, 
   Users, 
   User, 
-  Check, 
-  ArrowDownRight, 
-  ArrowUpRight,
-  Building,
-  FileDown
+  FileDown,
+  AlertCircle,
+  Loader2,
+  ArrowRight
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatMonthYear } from '../../utils/formatters';
 import { Transaction } from '../../types/finance';
 import { downloadStatementPdf, printStatementHtml, StatementData } from '../../utils/pdfGenerator';
 
@@ -44,6 +42,26 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
   const [periodType, setPeriodType] = useState<StatementPeriod>('monthly');
   const [targetMonth, setTargetMonth] = useState<string>(selectedMonth);
   const [targetYear, setTargetYear] = useState<string>(new Date().getFullYear().toString());
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  // Robust user matching functions that gracefully handle ID or username variations
+  const isMyTransaction = (t: Transaction): boolean => {
+    if (!currentUser) return false;
+    if (t.userId && t.userId === currentUser.id) return true;
+    if (t.userName && currentUser.name && t.userName.trim().toLowerCase() === currentUser.name.trim().toLowerCase()) return true;
+    if (partner?.id && t.userId && t.userId !== partner.id) return true;
+    if (partner?.name && t.userName && t.userName.trim().toLowerCase() !== partner.name.trim().toLowerCase()) return true;
+    return false;
+  };
+
+  const isPartnerTransaction = (t: Transaction): boolean => {
+    if (!partner) return false;
+    if (partner.id && t.userId === partner.id) return true;
+    if (partner.name && t.userName && t.userName.trim().toLowerCase() === partner.name.trim().toLowerCase()) return true;
+    if (currentUser?.id && t.userId && t.userId !== currentUser.id) return true;
+    if (currentUser?.name && t.userName && t.userName.trim().toLowerCase() !== currentUser.name.trim().toLowerCase()) return true;
+    return false;
+  };
 
   // Available unique months and years from transaction records + current date
   const { availableMonths, availableYears } = useMemo(() => {
@@ -67,19 +85,81 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     return { availableMonths: months, availableYears: years };
   }, [transactions]);
 
+  // All transactions matching the selected scope (unconstrained by month/year)
+  const scopeTransactionsAllTime = useMemo(() => {
+    return transactions.filter(t => {
+      if (scope === 'me') return isMyTransaction(t);
+      if (scope === 'partner') return isPartnerTransaction(t);
+      return true; // couple joint
+    });
+  }, [transactions, scope, currentUser, partner]);
+
+  // Map of YYYY-MM -> record count for current scope
+  const activeMonthsForScope = useMemo(() => {
+    const counts = new Map<string, number>();
+    scopeTransactionsAllTime.forEach(t => {
+      if (t.date && t.date.length >= 7) {
+        const m = t.date.slice(0, 7);
+        counts.set(m, (counts.get(m) || 0) + 1);
+      }
+    });
+    return counts;
+  }, [scopeTransactionsAllTime]);
+
+  // Latest month that actually has transactions for the selected scope
+  const latestActiveMonth = useMemo(() => {
+    const monthsWithRecords = Array.from(activeMonthsForScope.entries())
+      .filter(([, count]) => count > 0)
+      .map(([m]) => m)
+      .sort()
+      .reverse();
+    return monthsWithRecords[0] || null;
+  }, [activeMonthsForScope]);
+
+  // Smart scope switcher: if current month has 0 records for the new scope, auto-switch to a month with records
+  const handleScopeChange = (newScope: StatementScope) => {
+    setScope(newScope);
+
+    const filterFn = newScope === 'me' 
+      ? isMyTransaction 
+      : newScope === 'partner' 
+      ? isPartnerTransaction 
+      : () => true;
+
+    const newScopeTxs = transactions.filter(filterFn);
+    if (newScopeTxs.length === 0) return;
+
+    if (periodType === 'monthly') {
+      const countInCurrentMonth = newScopeTxs.filter(t => t.date?.startsWith(targetMonth)).length;
+      if (countInCurrentMonth === 0) {
+        const recentWithTx = newScopeTxs
+          .map(t => t.date?.slice(0, 7))
+          .filter((m): m is string => Boolean(m))
+          .sort()
+          .reverse()[0];
+
+        if (recentWithTx) {
+          setTargetMonth(recentWithTx);
+        } else {
+          setPeriodType('all');
+        }
+      }
+    }
+  };
+
   // Filtered transactions for the statement
   const statementTransactions = useMemo(() => {
     return transactions.filter(t => {
       // Scope filter
-      if (scope === 'me' && t.userId !== currentUser?.id) return false;
-      if (scope === 'partner' && partner && t.userId !== partner.id) return false;
+      if (scope === 'me' && !isMyTransaction(t)) return false;
+      if (scope === 'partner' && !isPartnerTransaction(t)) return false;
 
       // Period filter
-      if (periodType === 'monthly' && !t.date.startsWith(targetMonth)) return false;
-      if (periodType === 'yearly' && !t.date.startsWith(targetYear)) return false;
+      if (periodType === 'monthly' && !t.date?.startsWith(targetMonth)) return false;
+      if (periodType === 'yearly' && !t.date?.startsWith(targetYear)) return false;
 
       return true;
-    }).sort((a, b) => a.date.localeCompare(b.date)); // chronological for bank statement
+    }).sort((a, b) => (a.date || '').localeCompare(b.date || '')); // chronological for bank statement
   }, [transactions, scope, periodType, targetMonth, targetYear, currentUser, partner]);
 
   // Aggregate financial metrics
@@ -106,15 +186,15 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     : `${partner?.name || 'Partner'} (Personal Account)`;
 
   const periodLabel = periodType === 'monthly'
-    ? new Date(parseInt(targetMonth.split('-')[0]), parseInt(targetMonth.split('-')[1]) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    ? formatMonthYear(targetMonth)
     : periodType === 'yearly'
     ? `Full Year ${targetYear}`
     : 'All Time Financial History';
 
-  // Export CSV
-  const handleExportCSV = () => {
+  // Export CSV (with native mobile Web Share API + browser fallback)
+  const handleExportCSV = async () => {
     if (statementTransactions.length === 0) {
-      showToast('No transactions found for this period to export', 'info');
+      showToast('No transactions found in this timeframe to export', 'info');
       return;
     }
 
@@ -147,30 +227,58 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     // UTF-8 BOM for Excel compatibility
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-
     const cleanScope = scope === 'couple' ? 'Couple' : scope === 'me' ? currentUser.name : partner?.name || 'Partner';
     const cleanPeriod = periodType === 'monthly' ? targetMonth : periodType === 'yearly' ? targetYear : 'AllTime';
-    
-    link.href = url;
-    link.setAttribute('download', `NuPra_Statement_${cleanScope}_${cleanPeriod}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const fileName = `NuPra_Statement_${cleanScope}_${cleanPeriod}.csv`;
 
-    showToast('CSV statement downloaded successfully', 'success');
-    onClose();
+    // 1. Mobile: Web Share API with File
+    try {
+      const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+      if (nav && typeof nav.canShare === 'function' && typeof nav.share === 'function') {
+        const file = new File([blob], fileName, { type: 'text/csv' });
+        if (nav.canShare({ files: [file] })) {
+          await nav.share({
+            files: [file],
+            title: fileName,
+            text: `NuPra Finance CSV Statement: ${scopeLabel} (${periodLabel})`,
+          });
+          showToast('CSV statement exported successfully! 📊', 'success');
+          onClose();
+          return;
+        }
+      }
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') return;
+      console.warn('CSV share failed, falling back to download:', shareErr);
+    }
+
+    // 2. Standard browser download
+    try {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      showToast('CSV statement downloaded successfully', 'success');
+      onClose();
+    } catch (e) {
+      console.error('CSV download error:', e);
+      showToast('Could not download CSV', 'error');
+    }
   };
 
-  // Direct PDF Download
-  const handleExportPDF = () => {
+  // Direct PDF Download (with native Android Web Share API + fallback)
+  const handleExportPDF = async () => {
     if (statementTransactions.length === 0) {
-      showToast('No transactions found for this period to export', 'info');
+      showToast('No transactions found in this timeframe to export', 'info');
       return;
     }
 
+    setIsExporting(true);
     try {
       const cleanScope = scope === 'couple' ? 'Couple' : scope === 'me' ? currentUser.name : partner?.name || 'Partner';
       const cleanPeriod = periodType === 'monthly' ? targetMonth : periodType === 'yearly' ? targetYear : 'AllTime';
@@ -198,13 +306,20 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
         })),
       };
 
-      downloadStatementPdf(statementData, fileName);
-      showToast('PDF statement downloaded successfully! 📄', 'success');
-      onClose();
+      const success = await downloadStatementPdf(statementData, fileName);
+      if (success) {
+        showToast('PDF statement ready! 📄', 'success');
+        onClose();
+      } else {
+        showToast('Opening print view as fallback...', 'info');
+        handlePrintStatement();
+      }
     } catch (err) {
       console.error('PDF export error:', err);
-      showToast('Direct download failed, opening print view...', 'error');
+      showToast('Direct download failed, opening print view...', 'info');
       handlePrintStatement();
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -258,40 +373,40 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
           <div class="header">
             <div>
               <div class="logo">NuPra Finance <span class="badge">Official Statement</span></div>
-              <p style="margin: 5px 0 0; color: #64748b; font-size: 13px;">Couple & Personal Wealth Management</p>
+              <div style="font-size: 13px; color: #64748b; margin-top: 4px;">Verified Ledger • ${vault?.name || 'Couple Vault'}</div>
             </div>
             <div style="text-align: right; font-size: 12px; color: #64748b;">
-              <p style="margin: 0; font-weight: 700; color: #0f172a;">Statement Date: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
-              <p style="margin: 3px 0 0;">Vault ID: ${vault?.id || 'NP-VAULT'}</p>
+              <div>Generated on: <strong>${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong></div>
+              <div>Period: <strong>${periodLabel}</strong></div>
             </div>
           </div>
 
           <div class="info-grid">
             <div class="info-box">
-              <p style="margin: 0 0 5px; font-weight: 700; color: #0f172a;">Account Information</p>
-              <p style="margin: 2px 0;"><strong>Vault Name:</strong> ${vault?.name || 'Couple Vault'}</p>
-              <p style="margin: 2px 0;"><strong>Account Scope:</strong> ${scopeLabel}</p>
-              <p style="margin: 2px 0;"><strong>Account Holders:</strong> ${currentUser.name}${partner ? ` & ${partner.name}` : ''}</p>
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 6px; font-size: 13px;">ACCOUNT HOLDER DETAILS</div>
+              <div style="color: #475569;">Scope: <strong style="color: #0f172a;">${scopeLabel}</strong></div>
+              <div style="color: #475569;">Vault: <strong style="color: #0f172a;">${vault?.name || 'Couple Vault'}</strong></div>
+              <div style="color: #475569;">Primary Members: <strong style="color: #0f172a;">${currentUser.name}${partner ? ` & ${partner.name}` : ''}</strong></div>
             </div>
             <div class="info-box">
-              <p style="margin: 0 0 5px; font-weight: 700; color: #0f172a;">Statement Period Details</p>
-              <p style="margin: 2px 0;"><strong>Period:</strong> ${periodLabel}</p>
-              <p style="margin: 2px 0;"><strong>Currency:</strong> ${currency}</p>
-              <p style="margin: 2px 0;"><strong>Total Records:</strong> ${statementTransactions.length} entries</p>
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 6px; font-size: 13px;">STATEMENT SUMMARY</div>
+              <div style="color: #475569;">Currency: <strong style="color: #0f172a;">${currency}</strong></div>
+              <div style="color: #475569;">Total Records: <strong style="color: #0f172a;">${statementTransactions.length} transactions</strong></div>
+              <div style="color: #475569;">Net Savings: <strong style="color: ${netSavings >= 0 ? '#059669' : '#dc2626'};">${formatCurrency(netSavings, currency)}</strong></div>
             </div>
           </div>
 
           <div class="summary-cards">
             <div class="card">
-              <div class="card-title">Total Credits (Income)</div>
+              <div class="card-title">Total Income (+)</div>
               <div class="card-val" style="color: #059669;">+${formatCurrency(totalIncome, currency)}</div>
             </div>
             <div class="card">
-              <div class="card-title">Total Debits (Expenses)</div>
+              <div class="card-title">Total Expense (-)</div>
               <div class="card-val" style="color: #dc2626;">-${formatCurrency(totalExpense, currency)}</div>
             </div>
             <div class="card">
-              <div class="card-title">Net Financial Savings</div>
+              <div class="card-title">Net Balance</div>
               <div class="card-val" style="color: ${netSavings >= 0 ? '#0f172a' : '#dc2626'};">${formatCurrency(netSavings, currency)}</div>
             </div>
           </div>
@@ -334,7 +449,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">Export Financial Statement</h2>
-              <p className="text-[11px] text-slate-400">Official bank-style ledger for spreadsheets & PDF</p>
+              <p className="text-[11px] text-slate-400">Official bank-style ledger for mobile, PDF & spreadsheets</p>
             </div>
           </div>
           <button
@@ -354,7 +469,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setScope('couple')}
+                onClick={() => handleScopeChange('couple')}
                 className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
                   scope === 'couple'
                     ? 'border-indigo-500 bg-indigo-500/20 text-white shadow-md'
@@ -367,7 +482,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => setScope('me')}
+                onClick={() => handleScopeChange('me')}
                 className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
                   scope === 'me'
                     ? 'border-emerald-500 bg-emerald-500/20 text-white shadow-md'
@@ -381,7 +496,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
               {partner && (
                 <button
                   type="button"
-                  onClick={() => setScope('partner')}
+                  onClick={() => handleScopeChange('partner')}
                   className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
                     scope === 'partner'
                       ? 'border-purple-500 bg-purple-500/20 text-white shadow-md'
@@ -440,9 +555,14 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
           {/* Period Selector Dropdowns */}
           {periodType === 'monthly' && (
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Select Month
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-300">
+                  Select Month
+                </label>
+                <span className="text-[10px] text-slate-400">
+                  {activeMonthsForScope.get(targetMonth) || 0} records in this month
+                </span>
+              </div>
               <select
                 value={targetMonth}
                 onChange={(e) => setTargetMonth(e.target.value)}
@@ -452,9 +572,10 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
                   const [y, mon] = m.split('-').map(Number);
                   const date = new Date(y, mon - 1, 1);
                   const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  const count = activeMonthsForScope.get(m) || 0;
                   return (
                     <option key={m} value={m}>
-                      {label}
+                      {label} {count > 0 ? `(${count} records)` : '(0 records)'}
                     </option>
                   );
                 })}
@@ -478,6 +599,49 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {/* Empty State Helper Banner */}
+          {statementTransactions.length === 0 && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-xs animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 text-amber-300 font-bold">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>No transactions found for {scopeLabel} in {periodLabel}</span>
+              </div>
+              {scopeTransactionsAllTime.length > 0 ? (
+                <div className="space-y-2 text-slate-300">
+                  <p className="text-[11px] leading-relaxed">
+                    You have <strong className="text-white">{scopeTransactionsAllTime.length} transactions</strong> recorded in other timeframes.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPeriodType('all')}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all flex items-center gap-1 active:scale-95"
+                    >
+                      <span>Switch to All Time ({scopeTransactionsAllTime.length} records)</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                    {latestActiveMonth && latestActiveMonth !== targetMonth && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPeriodType('monthly');
+                          setTargetMonth(latestActiveMonth);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/10 transition-all active:scale-95"
+                      >
+                        Go to {formatMonthYear(latestActiveMonth)} ({activeMonthsForScope.get(latestActiveMonth)} records)
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  No expenses or income have been recorded for this account yet. Record a transaction to generate a statement.
+                </p>
+              )}
             </div>
           )}
 
@@ -511,18 +675,29 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
             <button
               type="button"
               onClick={handleExportPDF}
-              disabled={statementTransactions.length === 0}
-              className="py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-90 disabled:opacity-40 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-lg shadow-emerald-500/20"
+              disabled={statementTransactions.length === 0 || isExporting}
+              className="py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-lg shadow-emerald-500/20"
+              title={statementTransactions.length === 0 ? "Select a timeframe with records to enable" : "Save or Share Statement PDF on mobile or desktop"}
             >
-              <FileDown className="w-4 h-4 shrink-0" />
-              <span>Download PDF</span>
+              {isExporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>Preparing PDF...</span>
+                </>
+              ) : (
+                <>
+                  <FileDown className="w-4 h-4 shrink-0" />
+                  <span>Download PDF</span>
+                </>
+              )}
             </button>
 
             <button
               type="button"
               onClick={handleExportCSV}
-              disabled={statementTransactions.length === 0}
-              className="py-3 px-3 rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-white/15 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-md"
+              disabled={statementTransactions.length === 0 || isExporting}
+              className="py-3 px-3 rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed border border-white/15 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-md"
+              title={statementTransactions.length === 0 ? "Select a timeframe with records to enable" : "Download Excel / CSV spreadsheet"}
             >
               <Download className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>Download CSV</span>
@@ -531,8 +706,9 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
             <button
               type="button"
               onClick={handlePrintStatement}
-              disabled={statementTransactions.length === 0}
-              className="py-3 px-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 border border-white/10 text-slate-300 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
+              disabled={statementTransactions.length === 0 || isExporting}
+              className="py-3 px-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-slate-300 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
+              title={statementTransactions.length === 0 ? "Select a timeframe with records to enable" : "Open Print dialog or Save as PDF"}
             >
               <Printer className="w-4 h-4 text-indigo-400 shrink-0" />
               <span>Print View</span>
