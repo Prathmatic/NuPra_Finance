@@ -25,7 +25,18 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   onClose,
   initialMonth,
 }) => {
-  const { budgets, updateBudgets, getBudgetForMonth, currentUser, partner, currency, selectedMonth } = useFinance();
+  const { 
+    budgets, 
+    updateBudgets, 
+    getBudgetForMonth, 
+    currentUser, 
+    partner, 
+    currency, 
+    selectedMonth,
+    convertInputToBase,
+    convertToDisplay,
+    exchangeRate,
+  } = useFinance();
 
   const [monthKey, setMonthKey] = useState<string>(() => initialMonth || selectedMonth || new Date().toISOString().slice(0, 7));
   const [coupleBudget, setCoupleBudget] = useState('0');
@@ -46,10 +57,12 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setCoupleBudget((currentMonthBudget.coupleLimit || 0).toString());
-      setMyBudget((currentMonthBudget.myLimit || 0).toString());
+      const displayCouple = convertToDisplay(currentMonthBudget.coupleLimit || 0);
+      const displayMy = convertToDisplay(currentMonthBudget.myLimit || 0);
+      setCoupleBudget(displayCouple.toString());
+      setMyBudget(displayMy.toString());
     }
-  }, [isOpen, currentMonthBudget]);
+  }, [isOpen, currentMonthBudget, convertToDisplay]);
 
   if (!isOpen || !currentUser) return null;
 
@@ -74,8 +87,12 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cVal = Math.max(0, parseFloat(coupleBudget) || 0);
-    const mVal = Math.max(0, parseFloat(myBudget) || 0);
+    const cValInput = Math.max(0, parseFloat(coupleBudget) || 0);
+    const mValInput = Math.max(0, parseFloat(myBudget) || 0);
+
+    // Convert input limits to base EUR
+    const cVal = convertInputToBase(cValInput);
+    const mVal = convertInputToBase(mValInput);
 
     updateBudgets({
       couple: cVal,
@@ -90,12 +107,12 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   const handleResetToDefault = () => {
     const defaultCouple = budgets.couple || 0;
     const defaultMy = (currentUser.id ? budgets.userBudgets?.[currentUser.id] : undefined) ?? budgets.me ?? 0;
-    setCoupleBudget(defaultCouple.toString());
-    setMyBudget(defaultMy.toString());
+    setCoupleBudget(convertToDisplay(defaultCouple).toString());
+    setMyBudget(convertToDisplay(defaultMy).toString());
   };
 
   const currencySymbol = getCurrencySymbol(currency);
-  const partnerLimit = currentMonthBudget.partnerLimit || 0;
+  const partnerLimit = convertToDisplay(currentMonthBudget.partnerLimit || 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -182,6 +199,11 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
                 className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
               />
             </div>
+            {currency === 'INR' && parseFloat(coupleBudget) > 0 && (
+              <p className="text-[10px] text-teal-300">
+                ≈ €{Math.round(parseFloat(coupleBudget) / exchangeRate)} EUR base limit
+              </p>
+            )}
             <p className="text-[10px] text-slate-400">
               Combined spending limit for both partners in {formattedMonthName}. Either partner can adjust this.
             </p>
@@ -214,6 +236,11 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
                 className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-emerald-500 transition-all placeholder:text-slate-600"
               />
             </div>
+            {currency === 'INR' && parseFloat(myBudget) > 0 && (
+              <p className="text-[10px] text-teal-300">
+                ≈ €{Math.round(parseFloat(myBudget) / exchangeRate)} EUR base limit
+              </p>
+            )}
             <p className="text-[10px] text-slate-400">
               Your personal spending limit for {formattedMonthName}.
             </p>

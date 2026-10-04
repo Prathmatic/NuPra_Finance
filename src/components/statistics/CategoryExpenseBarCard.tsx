@@ -19,6 +19,7 @@ import {
 import { Transaction, Category, CurrencyCode, UserProfile } from '../../types/finance';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
+import { useFinance } from '../../context/FinanceContext';
 
 interface CategoryExpenseBarCardProps {
   transactions: Transaction[];
@@ -38,6 +39,7 @@ export const CategoryExpenseBarCard: React.FC<CategoryExpenseBarCardProps> = ({
   currentUser,
   partner,
 }) => {
+  const { exchangeRate } = useFinance();
   const [timeframe, setTimeframe] = useState<CategoryTimeframe>('month');
   const [barMode, setBarMode] = useState<CategoryBarMode>('split');
   const [showAll, setShowAll] = useState(false);
@@ -291,7 +293,10 @@ export const CategoryExpenseBarCard: React.FC<CategoryExpenseBarCardProps> = ({
                 stroke="#94a3b8" 
                 fontSize={10} 
                 tickLine={false} 
-                tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} 
+                tickFormatter={(v) => {
+                  const scaled = currency === 'INR' ? Math.round(v * exchangeRate) : v;
+                  return `${currencySymbol}${scaled >= 1000 ? `${(scaled / 1000).toFixed(0)}k` : scaled}`;
+                }} 
               />
               <Tooltip 
                 contentStyle={{ 

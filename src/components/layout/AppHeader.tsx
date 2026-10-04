@@ -8,6 +8,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { NPIcon } from '../common/NPIcon';
+import { CurrencyConverterModal } from '../common/CurrencyConverterModal';
 
 interface AppHeaderProps {
   onOpenProfile: () => void;
@@ -25,10 +26,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
     viewMode, 
     setViewMode, 
     isSyncing,
-    refreshSync 
+    refreshSync,
+    exchangeRate,
+    isRateLoading,
   } = useFinance();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isConverterOpen, setIsConverterOpen] = useState(false);
 
   if (!currentUser) return null;
 
@@ -64,7 +68,21 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
         </div>
 
         {/* Currency & Profile */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Live Rate Pill */}
+          <button
+            type="button"
+            onClick={() => setIsConverterOpen(true)}
+            title="Live European Central Bank Rate: Tap to open Currency Converter"
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-xs font-semibold text-slate-200 transition-all active:scale-95 group cursor-pointer"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 group-hover:scale-125 transition-transform" />
+            <span className="text-[10px] sm:text-[11px] font-bold text-teal-300 whitespace-nowrap">
+              <span className="hidden xs:inline">1 € = </span>₹{exchangeRate.toFixed(1)}
+            </span>
+            <RefreshCw className={`w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400 group-hover:text-teal-400 transition-colors ${isRateLoading ? 'animate-spin' : ''}`} />
+          </button>
+
           {/* Currency Toggle */}
           <div className="flex items-center bg-slate-800/80 p-0.5 rounded-xl border border-white/10 text-xs font-semibold">
             <button 
@@ -204,6 +222,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
           )}
         </div>
       </div>
+
+      <CurrencyConverterModal
+        isOpen={isConverterOpen}
+        onClose={() => setIsConverterOpen(false)}
+      />
     </header>
   );
 };

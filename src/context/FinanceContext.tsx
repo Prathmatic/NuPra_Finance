@@ -29,6 +29,18 @@ import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { Toast, ToastMessage } from '../components/common/Toast';
 import { calculateSplitwiseBalance, getBillSplitInfo } from '../utils/splitwise';
+import { 
+  ExchangeRateData, 
+  getSavedExchangeRate, 
+  fetchLiveExchangeRate, 
+  setCustomRateOverride, 
+  clearCustomRateOverride 
+} from '../services/exchangeRateService';
+import { 
+  setGlobalExchangeRate, 
+  convertEurToInr, 
+  convertInrToEur 
+} from '../utils/formatters';
 
 interface FinanceContextType {
   currentUser: UserProfile | null;
@@ -112,6 +124,16 @@ interface FinanceContextType {
 
   // Sync
   refreshSync: () => Promise<void>;
+
+  // Live Exchange Rate (EUR -> INR)
+  exchangeRate: number;
+  exchangeRateData: ExchangeRateData;
+  isRateLoading: boolean;
+  refreshExchangeRate: (force?: boolean) => Promise<void>;
+  setCustomExchangeRate: (rate: number) => void;
+  clearCustomExchangeRate: () => void;
+  convertToDisplay: (amountInEur: number) => number;
+  convertInputToBase: (amountInInput: number) => number;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -140,6 +162,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [bills, setBills] = useState<BillItem[]>(() => CloudStore.getBills());
   const [currency, setCurrencyState] = useState<CurrencyCode>(() => CloudStore.getCurrency());
   const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
+
+  // Exchange rate state (EUR -> INR) with synchronous global sync
+  const [exchangeRateData, setExchangeRateData] = useState<ExchangeRateData>(() => {
+    const saved = getSavedExchangeRate();
+    setGlobalExchangeRate(saved.rate);
+    return saved;
+  });
+  const [isRateLoading, setIsRateLoading] = useState<boolean>(false);
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [viewMode, setViewMode] = useState<'both' | 'me' | 'partner'>('both');
@@ -196,6 +226,36 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Global Toast notification state
   const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  // Sync live ECB exchange rate on mount and window focus
+  useEffect(() => {
+    let isMounted = true;
+    const loadRates = async (force = false) => {
+      try {
+        setIsRateLoading(true);
+        const data = await fetchLiveExchangeRate(force);
+        if (isMounted) {
+          setExchangeRateData(data);
+          setGlobalExchangeRate(data.rate);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch live exchange rate:', err);
+      } finally {
+        if (isMounted) setIsRateLoading(false);
+      }
+    };
+
+    loadRates(false);
+
+    const handleFocus = () => {
+      loadRates(false);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ id: `${Date.now()}-${Math.random()}`, message, type });
@@ -723,6 +783,53 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       setAuthError(error instanceof Error ? error.message : 'Could not sign out.');
     });
   };
+
+  /* ─── Exchange Rate Handlers ─────────────────────────────────────────── */
+  const refreshExchangeRate = useCallback(async (force = true) => {
+    try {
+      setIsRateLoading(true);
+      const data = await fetchLiveExchangeRate(force);
+      setExchangeRateData(data);
+      setGlobalExchangeRate(data.rate);
+      showToast(`Exchange rate updated: 1 € = ₹${data.rate.toFixed(2)} (${data.source})`, 'success');
+    } catch {
+      showToast('Could not refresh live rate, using latest cached rate.', 'info');
+    } finally {
+      setIsRateLoading(false);
+    }
+  }, [showToast]);
+
+  const setCustomExchangeRate = useCallback((customRate: number) => {
+    try {
+      const updated = setCustomRateOverride(customRate);
+      setExchangeRateData(updated);
+      setGlobalExchangeRate(updated.rate);
+      showToast(`Custom exchange rate set: 1 € = ₹${updated.rate.toFixed(2)}`, 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Invalid rate value', 'error');
+    }
+  }, [showToast]);
+
+  const clearCustomExchangeRate = useCallback(() => {
+    const updated = clearCustomRateOverride();
+    setExchangeRateData(updated);
+    setGlobalExchangeRate(updated.rate);
+    showToast(`Restored ECB live rate: 1 € = ₹${updated.rate.toFixed(2)}`, 'success');
+  }, [showToast]);
+
+  const convertToDisplay = useCallback((amountInEur: number): number => {
+    if (currency === 'INR') {
+      return convertEurToInr(amountInEur, exchangeRateData.rate);
+    }
+    return amountInEur;
+  }, [currency, exchangeRateData.rate]);
+
+  const convertInputToBase = useCallback((amountInInput: number): number => {
+    if (currency === 'INR') {
+      return convertInrToEur(amountInInput, exchangeRateData.rate);
+    }
+    return amountInInput;
+  }, [currency, exchangeRateData.rate]);
 
   /* ─── Budgets ─────────────────────────────────────────────────────────── */
   const getBudgetForMonth = useCallback((monthKey: string) => {
@@ -1727,6 +1834,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addBill, markBillAsPaid, deleteBill,
         settleBill, settleAllBills,
         refreshSync: pullFromCloud,
+        exchangeRate: exchangeRateData.rate,
+        exchangeRateData,
+        isRateLoading,
+        refreshExchangeRate,
+        setCustomExchangeRate,
+        clearCustomExchangeRate,
+        convertToDisplay,
+        convertInputToBase,
       }}
     >
       <Toast toast={toast} onDismiss={dismissToast} />

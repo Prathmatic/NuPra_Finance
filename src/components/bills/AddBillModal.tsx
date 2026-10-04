@@ -19,7 +19,7 @@ interface AddBillModalProps {
 }
 
 export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) => {
-  const { currency, addBill, currentUser, partner } = useFinance();
+  const { currency, addBill, currentUser, partner, convertInputToBase, exchangeRate } = useFinance();
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
@@ -37,6 +37,8 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || parsedAmount <= 0) return;
+
+    const baseAmount = convertInputToBase(parsedAmount);
 
     const isPaid = paidStatus === 'paid_by_me';
     const payerId = isPaid 
@@ -67,7 +69,7 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
 
     addBill({
       title: title.trim(),
-      amount: parsedAmount,
+      amount: baseAmount,
       dueDate,
       categoryName,
       categoryColor: '#F97316',
@@ -143,6 +145,11 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-base font-bold focus:outline-none focus:border-orange-500"
               />
             </div>
+            {currency === 'INR' && parseFloat(amount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300">
+                ≈ €{(parseFloat(amount) / exchangeRate).toFixed(2)} EUR base amount
+              </p>
+            )}
           </div>
 
           {/* Paid Status Selector */}

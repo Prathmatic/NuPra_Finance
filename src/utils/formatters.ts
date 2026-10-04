@@ -1,13 +1,57 @@
 import { CurrencyCode } from '../types/finance';
 
-export const formatCurrency = (amount: number, currency: CurrencyCode = 'INR'): string => {
-  const rounded = Math.round(amount);
+// Central global exchange rate tracker for EUR -> INR
+let currentGlobalEurToInrRate = 108.12;
+
+export const setGlobalExchangeRate = (rate: number): void => {
+  if (typeof rate === 'number' && rate > 0) {
+    currentGlobalEurToInrRate = rate;
+  }
+};
+
+export const getGlobalExchangeRate = (): number => {
+  return currentGlobalEurToInrRate;
+};
+
+export const convertEurToInr = (eurAmount: number, rate?: number): number => {
+  const effectiveRate = rate && rate > 0 ? rate : currentGlobalEurToInrRate;
+  return Math.round(eurAmount * effectiveRate);
+};
+
+export const convertInrToEur = (inrAmount: number, rate?: number): number => {
+  const effectiveRate = rate && rate > 0 ? rate : currentGlobalEurToInrRate;
+  return Math.round((inrAmount / effectiveRate) * 100) / 100;
+};
+
+export const formatRawInr = (inrAmount: number): string => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(Math.round(inrAmount));
+};
+
+export const formatRawEur = (eurAmount: number): string => {
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 2,
+  }).format(eurAmount);
+};
+
+export const formatCurrency = (
+  amount: number, 
+  currency: CurrencyCode = 'INR',
+  exchangeRate?: number
+): string => {
   if (currency === 'INR') {
+    const effectiveRate = exchangeRate && exchangeRate > 0 ? exchangeRate : currentGlobalEurToInrRate;
+    const inrValue = Math.round(amount * effectiveRate);
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
       maximumFractionDigits: 0,
-    }).format(rounded);
+    }).format(inrValue);
   }
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',

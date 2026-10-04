@@ -23,10 +23,10 @@ import {
   ChevronRight, 
   Calendar, 
   Edit3 
-} from 'lucide-react';
 import { Transaction, Category, CurrencyCode, UserProfile, BudgetsConfig } from '../../types/finance';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
+import { useFinance } from '../../context/FinanceContext';
 
 interface BudgetLimitStatsCardProps {
   transactions: Transaction[];
@@ -51,6 +51,7 @@ export const BudgetLimitStatsCard: React.FC<BudgetLimitStatsCardProps> = ({
   partner,
   onOpenBudgetModal,
 }) => {
+  const { exchangeRate } = useFinance();
   const [plotMode, setPlotMode] = useState<BudgetPlotMode>('combined');
   const currentMonthKey = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
@@ -304,7 +305,10 @@ export const BudgetLimitStatsCard: React.FC<BudgetLimitStatsCardProps> = ({
               stroke="#94a3b8" 
               fontSize={10} 
               tickLine={false} 
-              tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} 
+              tickFormatter={(v) => {
+                const scaled = currency === 'INR' ? Math.round(v * exchangeRate) : v;
+                return `${currencySymbol}${scaled >= 1000 ? `${(scaled / 1000).toFixed(0)}k` : scaled}`;
+              }} 
             />
             <Tooltip 
               contentStyle={{ 

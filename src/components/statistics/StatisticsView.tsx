@@ -27,12 +27,17 @@ import { BudgetLimitStatsCard } from './BudgetLimitStatsCard';
 import { BudgetSettingsModal } from '../dashboard/BudgetSettingsModal';
 
 export const StatisticsView: React.FC = () => {
-  const { transactions, categories, goals, stocks, currency, currentUser, partner, budgets, getBudgetForMonth } = useFinance();
+  const { transactions, categories, goals, stocks, currency, currentUser, partner, budgets, getBudgetForMonth, exchangeRate } = useFinance();
   const [timeframe, setTimeframe] = useState<'monthly' | 'yearly'>('monthly');
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [budgetModalMonth, setBudgetModalMonth] = useState<string | undefined>(undefined);
 
   const currencySymbol = getCurrencySymbol(currency);
+
+  const formatYAxisTick = (v: number) => {
+    const scaled = currency === 'INR' ? Math.round(v * exchangeRate) : v;
+    return `${currencySymbol}${scaled >= 1000 ? `${(scaled / 1000).toFixed(0)}k` : scaled}`;
+  };
 
   // Available Net Savings for Goals plot breakdown
   const { mySavings, partnerSavings, totalSavingsTogether } = useMemo(() => {
@@ -232,7 +237,7 @@ export const StatisticsView: React.FC = () => {
             <BarChart data={activePeriodData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
               <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${v/1000}k` : v}`} />
+              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={formatYAxisTick} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
@@ -269,7 +274,7 @@ export const StatisticsView: React.FC = () => {
             <BarChart data={activePeriodData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
               <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${v/1000}k` : v}`} />
+              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={formatYAxisTick} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
@@ -319,7 +324,7 @@ export const StatisticsView: React.FC = () => {
             <BarChart data={goalDeficitData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
               <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${v/1000}k` : v}`} />
+              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={formatYAxisTick} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}

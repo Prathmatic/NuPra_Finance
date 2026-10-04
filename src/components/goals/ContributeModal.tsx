@@ -12,7 +12,7 @@ interface ContributeModalProps {
 }
 
 export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, onClose }) => {
-  const { contributeToGoal, currency, currentUser, partner, transactions } = useFinance();
+  const { contributeToGoal, currency, currentUser, partner, transactions, convertInputToBase, exchangeRate } = useFinance();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
@@ -82,18 +82,27 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
     );
   }
 
+  const remaining = Math.max(0, goal.targetAmount - goal.currentAmount);
+  const currencySymbol = getCurrencySymbol(currency);
+  const parsedAmount = parseFloat(amount) || 0;
+  const maxDepositAllowed = currency === 'INR' ? Math.round(availableSavings * exchangeRate) : availableSavings;
+  const displayRemaining = currency === 'INR' ? Math.round(remaining * exchangeRate) : remaining;
+  const exceedsSavings = parsedAmount > maxDepositAllowed;
+  const exceedsRemaining = parsedAmount > displayRemaining;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed <= 0) return;
 
-    // Enforce savings cap
-    if (parsed > availableSavings) return;
+    const baseContribution = convertInputToBase(parsed);
+    // Enforce savings cap with small epsilon
+    if (baseContribution > availableSavings + 0.05) return;
 
-    contributeToGoal(goal.id, parsed, note.trim() || undefined);
+    contributeToGoal(goal.id, baseContribution, note.trim() || undefined);
 
     // If goal reaches or passes 100%, fire glorious confetti!
-    if (goal.currentAmount + parsed >= goal.targetAmount) {
+    if (goal.currentAmount + baseContribution >= goal.targetAmount) {
       confetti({
         particleCount: 120,
         spread: 80,
@@ -106,12 +115,6 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
     setNote('');
     onClose();
   };
-
-  const remaining = Math.max(0, goal.targetAmount - goal.currentAmount);
-  const currencySymbol = getCurrencySymbol(currency);
-  const parsedAmount = parseFloat(amount) || 0;
-  const exceedsSavings = parsedAmount > availableSavings;
-  const exceedsRemaining = parsedAmount > remaining;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -163,7 +166,7 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
                 placeholder="5000"
                 required
                 min="1"
-                max={availableSavings}
+                max={maxDepositAllowed}
                 autoFocus
                 className={`w-full pl-9 pr-3.5 py-3 rounded-xl bg-slate-800 border text-white text-lg font-bold focus:outline-none transition-colors ${
                   exceedsSavings
@@ -172,6 +175,11 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
                 }`}
               />
             </div>
+            {currency === 'INR' && parsedAmount > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300">
+                ≈ €{(parsedAmount / exchangeRate).toFixed(2)} EUR base deposit
+              </p>
+            )}
             {exceedsSavings && (
               <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
@@ -188,17 +196,18 @@ export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, 
             {availableSavings > 0 && (
               <div className="mt-2 flex gap-2">
                 {[0.25, 0.5, 1].map(frac => {
-                  const v = Math.min(Math.floor(availableSavings * frac), remaining);
-                  if (v <= 0) return null;
+                  const vEur = Math.min(Math.floor(availableSavings * frac), remaining);
+                  if (vEur <= 0) return null;
+                  const vDisplay = currency === 'INR' ? Math.round(vEur * exchangeRate) : vEur;
                   return (
                     <button
                       key={frac}
                       type="button"
-                      onClick={() => setAmount(String(v))}
+                      onClick={() => setAmount(String(vDisplay))}
                       className="flex-1 py-1 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-[10px] text-slate-300 font-semibold transition-all border border-white/5"
                     >
                       {frac === 1 ? 'Max' : `${Math.round(frac * 100)}%`}
-                      <span className="block text-[9px] text-slate-500">{formatCurrency(v, currency)}</span>
+                      <span className="block text-[9px] text-slate-500">{formatCurrency(vEur, currency)}</span>
                     </button>
                   );
                 })}
