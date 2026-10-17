@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "@supabase/supabase-js": "^2.117.2",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.48.0",

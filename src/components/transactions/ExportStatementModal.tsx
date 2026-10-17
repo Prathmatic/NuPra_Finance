@@ -16,11 +16,13 @@ import {
   Check,
   Share2,
   ArrowLeft,
-  ExternalLink
+  ExternalLink,
+  Target
 } from 'lucide-react';
 import { formatCurrency, formatMonthYear } from '../../utils/formatters';
 import { Transaction } from '../../types/finance';
 import { generateStatementPdfBlob, StatementData } from '../../utils/pdfGenerator';
+import { exportFile } from '../../utils/fileDownloader';
 
 interface ExportStatementModalProps {
   isOpen: boolean;
@@ -39,7 +41,8 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     partner, 
     vault, 
     transactions, 
-    currency,
+    goals,
+    currency, 
     selectedMonth,
     showToast 
   } = useFinance();
@@ -173,19 +176,35 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
   }, [transactions, scope, periodType, targetMonth, targetYear, currentUser, partner]);
 
   // Aggregate financial metrics
-  const { totalIncome, totalExpense, netSavings } = useMemo(() => {
+  const { totalIncome, totalExpense, netSavings, savingsRate, goalCapital } = useMemo(() => {
     let inc = 0;
     let exp = 0;
     statementTransactions.forEach(t => {
       if (t.type === 'income') inc += t.amount;
       else exp += t.amount;
     });
+
+    // Goal capital allocated in this timeframe
+    let goalsTotal = 0;
+    (goals || []).forEach(g => {
+      (g.contributions || []).forEach(c => {
+        if (periodType === 'monthly' && c.date?.startsWith(targetMonth)) goalsTotal += c.amount;
+        else if (periodType === 'yearly' && c.date?.startsWith(targetYear)) goalsTotal += c.amount;
+        else if (periodType === 'all') goalsTotal += c.amount;
+      });
+    });
+
+    const net = inc - exp;
+    const rate = inc > 0 ? Math.round((net / inc) * 100) : 0;
+
     return {
       totalIncome: inc,
       totalExpense: exp,
-      netSavings: inc - exp,
+      netSavings: net,
+      savingsRate: rate,
+      goalCapital: goalsTotal,
     };
-  }, [statementTransactions]);
+  }, [statementTransactions, goals, periodType, targetMonth, targetYear]);
 
   if (!isOpen || !currentUser) return null;
 
@@ -201,7 +220,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     ? `Full Year ${targetYear}`
     : 'All Time Financial History';
 
-  // Export CSV (Clipboard copy + Native Web Share API + Data URI link fallback)
+  // Export CSV (Universal mobile & desktop via fileDownloader)
   const handleExportCSV = async () => {
     if (statementTransactions.length === 0) {
       showToast('No transactions found in this timeframe to export', 'info');
@@ -240,54 +259,26 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     const cleanPeriod = periodType === 'monthly' ? targetMonth : periodType === 'yearly' ? targetYear : 'AllTime';
     const fileName = `NuPra_Statement_${cleanScope}_${cleanPeriod}.csv`;
 
-    // 1. Copy to clipboard immediately (100% reliable on mobile and desktop)
+    // 1. Copy to clipboard immediately as instant assurance
     try {
       await navigator.clipboard.writeText(csvContent);
       setCsvCopied(true);
       setTimeout(() => setCsvCopied(false), 4000);
-    } catch {
-      // ignore clipboard error
-    }
+    } catch {}
 
-    // 2. Mobile: Web Share API with File
-    try {
-      const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
-      if (nav && typeof nav.canShare === 'function' && typeof nav.share === 'function') {
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const file = new File([blob], fileName, { type: 'text/csv' });
-        if (nav.canShare({ files: [file] })) {
-          await nav.share({
-            files: [file],
-            title: fileName,
-            text: `NuPra Finance CSV Statement: ${scopeLabel} (${periodLabel})`,
-          });
-          showToast('CSV statement shared! 📊 Also copied to clipboard.', 'success');
-          return;
-        }
-      }
-    } catch (shareErr: any) {
-      if (shareErr?.name === 'AbortError') return;
-      console.warn('CSV share failed, falling back to download:', shareErr);
-    }
+    // 2. Export file via universal downloader (native Capacitor Android / Web Share / Data URI)
+    const result = await exportFile({
+      fileName,
+      data: csvContent,
+      mimeType: 'text/csv;charset=utf-8',
+      title: `NuPra Statement CSV - ${scopeLabel}`,
+      text: `NuPra Finance CSV Statement: ${scopeLabel} (${periodLabel})`,
+    });
 
-    // 3. Universal Data URI download (Android Chrome & Desktop compatible)
-    try {
-      const encodedUri = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csvContent);
-      const link = document.createElement('a');
-      link.href = encodedUri;
-      link.setAttribute('download', fileName);
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showToast('CSV downloaded & copied to clipboard! 📋', 'success');
-    } catch (e) {
-      console.error('CSV download error:', e);
-      showToast('CSV copied to clipboard! (Browser prevented direct file saving)', 'info');
-    }
+    showToast(result.message, result.success ? 'success' : 'info');
   };
 
-  // Direct PDF Download & Share (with direct tap link + Web Share API + Print View fallback)
+  // Direct PDF Download & Share (Universal mobile & desktop via fileDownloader)
   const handleExportPDF = async () => {
     if (statementTransactions.length === 0) {
       showToast('No transactions found in this timeframe to export', 'info');
@@ -300,6 +291,14 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       const cleanPeriod = periodType === 'monthly' ? targetMonth : periodType === 'yearly' ? targetYear : 'AllTime';
       const fileName = `NuPra_Statement_${cleanScope}_${cleanPeriod}.pdf`;
 
+      const relevantGoals = (goals || []).map(g => ({
+        id: g.id,
+        title: g.title,
+        targetAmount: g.targetAmount,
+        currentAmount: g.currentAmount,
+        isCompleted: Boolean(g.isCompleted || g.currentAmount >= g.targetAmount),
+      }));
+
       const statementData: StatementData = {
         scopeLabel,
         periodLabel,
@@ -311,6 +310,8 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
         totalIncome,
         totalExpense,
         netSavings,
+        savingsRate,
+        goalCapital,
         transactions: statementTransactions.map(t => ({
           date: t.date,
           title: t.title,
@@ -319,7 +320,9 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
           paymentMethod: t.paymentMethod,
           type: t.type,
           amount: t.amount,
+          isGoalExpense: Boolean(t.isGoalExpense),
         })),
+        goals: relevantGoals,
       };
 
       const blob = generateStatementPdfBlob(statementData);
@@ -327,37 +330,20 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       setPdfDownloadUrl(url);
       setPdfFileName(fileName);
 
-      // 1. Mobile Web Share API with File (Android / iOS native system dialog)
-      try {
-        const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
-        if (nav && typeof nav.canShare === 'function' && typeof nav.share === 'function') {
-          const file = new File([blob], fileName, { type: 'application/pdf' });
-          if (nav.canShare({ files: [file] })) {
-            await nav.share({ files: [file], title: fileName });
-            showToast('PDF statement shared successfully! 📄', 'success');
-            return;
-          }
-        }
-      } catch (shareErr: any) {
-        if (shareErr?.name === 'AbortError') return;
-        console.warn('Web Share API error, using direct download:', shareErr);
+      // Export file via universal downloader (native Capacitor Android / Web Share / Data URI)
+      const result = await exportFile({
+        fileName,
+        data: blob,
+        mimeType: 'application/pdf',
+        title: `NuPra Statement PDF - ${scopeLabel}`,
+        text: `NuPra Finance PDF Statement: ${scopeLabel} (${periodLabel})`,
+      });
+
+      if (result.uri) {
+        setPdfDownloadUrl(result.uri);
       }
 
-      // 2. Direct browser download trigger
-      try {
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', fileName);
-        link.rel = 'noopener';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        showToast('PDF ready! Tap "Open / Download PDF" below if not started automatically 📥', 'success');
-      } catch (blobErr) {
-        console.warn('Auto click download error:', blobErr);
-        showToast('PDF ready! Tap "Open / Download PDF" below 📥', 'info');
-      }
+      showToast(result.message, result.success ? 'success' : 'info');
     } catch (err) {
       console.error('PDF export error:', err);
       showToast('Could not generate PDF. Opening Print View...', 'error');
@@ -370,7 +356,6 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
   // Open Full In-App Statement Preview / Print Dialog
   const handleOpenPrintPreview = () => {
     setShowPrintPreview(true);
-    // Attempt window.print directly on modern mobile & desktop
     setTimeout(() => {
       try {
         window.print();
@@ -388,7 +373,8 @@ Period: ${periodLabel}
 Vault: ${vault?.name || 'Couple Vault'}
 Total Income: +${formatCurrency(totalIncome, currency)}
 Total Expense: -${formatCurrency(totalExpense, currency)}
-Net Balance: ${formatCurrency(netSavings, currency)}
+Net Balance: ${formatCurrency(netSavings, currency)} (${savingsRate}% saved)
+Goals Capital Allocated: ${formatCurrency(goalCapital, currency)}
 Total Records: ${statementTransactions.length}
 
 Ledger Breakdown:
@@ -474,23 +460,29 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
 
           {/* Scrollable Printable Statement Body */}
           <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pr-1" id="statement-printable-section">
-            {/* Statement Header */}
+            {/* Statement Header with NP Logo */}
             <div className="flex justify-between items-start pb-4 border-b-2 border-slate-900 gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">NuPra Finance</h1>
-                  <span className="bg-slate-900 text-white text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider">
-                    Official Statement
-                  </span>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-700 border-2 border-emerald-500 flex items-center justify-center text-white font-black text-xl shadow-md shrink-0">
+                  NP
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Verified Financial Ledger • {vault?.name || 'Couple Vault'}
-                </p>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">NuPra Finance</h1>
+                    <span className="bg-slate-900 text-white text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider">
+                      Official Statement
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Verified Financial Ledger & Audit Trail • {vault?.name || 'Couple Vault'}
+                  </p>
+                </div>
               </div>
 
               <div className="text-right text-xs text-slate-600 space-y-0.5">
                 <p>Generated: <strong className="text-slate-900">{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong></p>
                 <p>Period: <strong className="text-slate-900">{periodLabel}</strong></p>
+                <p className="text-[10px] text-slate-400">Vault ID: {vault?.id || 'NP-VAULT'}</p>
               </div>
             </div>
 
@@ -513,63 +505,126 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
               </div>
             </div>
 
-            {/* Summary Metrics Trio */}
-            <div className="grid grid-cols-3 gap-3">
+            {/* Summary Metrics Quad */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-center">
-                <p className="text-[10px] uppercase font-bold text-emerald-700">Total Income (+)</p>
+                <p className="text-[9px] uppercase font-bold text-emerald-700">Total Income (+)</p>
                 <p className="text-base sm:text-lg font-black text-emerald-800">+{formatCurrency(totalIncome, currency)}</p>
               </div>
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-center">
-                <p className="text-[10px] uppercase font-bold text-rose-700">Total Expense (-)</p>
+                <p className="text-[9px] uppercase font-bold text-rose-700">Total Expense (-)</p>
                 <p className="text-base sm:text-lg font-black text-rose-800">-{formatCurrency(totalExpense, currency)}</p>
               </div>
               <div className="p-3 bg-slate-100 border border-slate-300 rounded-2xl text-center">
-                <p className="text-[10px] uppercase font-bold text-slate-700">Net Balance</p>
+                <p className="text-[9px] uppercase font-bold text-slate-700">Net Savings ({savingsRate}%)</p>
                 <p className={`text-base sm:text-lg font-black ${netSavings >= 0 ? 'text-slate-900' : 'text-rose-800'}`}>
                   {formatCurrency(netSavings, currency)}
                 </p>
               </div>
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-center">
+                <p className="text-[9px] uppercase font-bold text-purple-700">Goals Capital</p>
+                <p className="text-base sm:text-lg font-black text-purple-800">
+                  {formatCurrency(goalCapital, currency)}
+                </p>
+              </div>
             </div>
 
+            {/* Financial Goals & Milestones Section (Separately) */}
+            {goals && goals.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                    Financial Goals & Milestones
+                  </h3>
+                </div>
+                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider">
+                        <th className="py-2 px-3 font-bold">Goal Name</th>
+                        <th className="py-2 px-3 font-bold">Target</th>
+                        <th className="py-2 px-3 font-bold">Current Saved</th>
+                        <th className="py-2 px-3 font-bold">Progress</th>
+                        <th className="py-2 px-3 font-bold text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {goals.map(g => {
+                        const pct = g.targetAmount > 0 ? Math.min(100, Math.round((g.currentAmount / g.targetAmount) * 100)) : 0;
+                        return (
+                          <tr key={g.id} className="bg-white">
+                            <td className="py-2 px-3 font-bold text-slate-900">{g.title}</td>
+                            <td className="py-2 px-3 text-slate-600">{formatCurrency(g.targetAmount, currency)}</td>
+                            <td className="py-2 px-3 text-emerald-700 font-bold">{formatCurrency(g.currentAmount, currency)}</td>
+                            <td className="py-2 px-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-20 bg-slate-200 h-2 rounded-full overflow-hidden">
+                                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-600">{pct}%</span>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
+                                g.isCompleted || pct >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {g.isCompleted || pct >= 100 ? 'Completed' : 'In Progress'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* Ledger Table */}
-            <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider">
-                    <th className="py-2.5 px-3 font-bold">Date</th>
-                    <th className="py-2.5 px-3 font-bold">Description</th>
-                    <th className="py-2.5 px-3 font-bold">Category</th>
-                    <th className="py-2.5 px-3 font-bold">Paid By</th>
-                    <th className="py-2.5 px-3 font-bold text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {statementTransactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400">
-                        No transactions found in this period.
-                      </td>
+            <div className="space-y-2">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                Transaction Ledger & Audit Trail
+              </h3>
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider">
+                      <th className="py-2.5 px-3 font-bold">Date</th>
+                      <th className="py-2.5 px-3 font-bold">Description</th>
+                      <th className="py-2.5 px-3 font-bold">Category</th>
+                      <th className="py-2.5 px-3 font-bold">Paid By</th>
+                      <th className="py-2.5 px-3 font-bold text-right">Amount</th>
                     </tr>
-                  ) : (
-                    statementTransactions.map((t, idx) => (
-                      <tr key={t.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}>
-                        <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{t.date}</td>
-                        <td className="py-2 px-3 font-bold text-slate-900">
-                          {t.title}
-                          {t.isGoalExpense && (
-                            <span className="ml-1.5 px-1 py-0.2 rounded bg-purple-100 text-purple-700 text-[9px] font-bold">Goal</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-slate-600">{t.categoryName || 'General'}</td>
-                        <td className="py-2 px-3 text-slate-500">{t.userName || 'Joint'}</td>
-                        <td className={`py-2 px-3 text-right font-black whitespace-nowrap ${t.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount, currency)}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {statementTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-400">
+                          No transactions found in this period.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      statementTransactions.map((t, idx) => (
+                        <tr key={t.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}>
+                          <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{t.date}</td>
+                          <td className="py-2 px-3 font-bold text-slate-900">
+                            {t.title}
+                            {t.isGoalExpense && (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold">Goal</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">{t.categoryName || 'General'}</td>
+                          <td className="py-2 px-3 text-slate-500">{t.userName || 'Joint'}</td>
+                          <td className={`py-2 px-3 text-right font-black whitespace-nowrap ${t.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount, currency)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Footer */}
@@ -591,7 +646,7 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
               </div>
               <div>
                 <h2 className="text-sm font-bold text-white">Export Financial Statement</h2>
-                <p className="text-[11px] text-slate-400">Official bank-style ledger for mobile, PDF & spreadsheets</p>
+                <p className="text-[11px] text-slate-400">Official bank-style ledger with NP branding & goals</p>
               </div>
             </div>
             <button
@@ -806,7 +861,7 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
               </div>
             </div>
 
-            {/* Generated PDF Direct Download Card (Shows if ready) */}
+            {/* Generated PDF Direct Download Card */}
             {pdfDownloadUrl && (
               <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 space-y-2 animate-in fade-in">
                 <div className="flex items-center justify-between">

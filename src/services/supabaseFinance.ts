@@ -318,6 +318,8 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
             me: Number(parsed.me) || 0,
             partner: Number(parsed.partner) || 0,
             userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
+            monthlyBudgets: typeof parsed.monthlyBudgets === 'object' && parsed.monthlyBudgets !== null ? parsed.monthlyBudgets : {},
+            bankBalances: typeof parsed.bankBalances === 'object' && parsed.bankBalances !== null ? parsed.bankBalances : {},
           };
         }
       } catch {}
@@ -459,6 +461,8 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
           me: Number(parsed.me) || 0,
           partner: Number(parsed.partner) || 0,
           userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
+          monthlyBudgets: typeof parsed.monthlyBudgets === 'object' && parsed.monthlyBudgets !== null ? parsed.monthlyBudgets : {},
+          bankBalances: typeof parsed.bankBalances === 'object' && parsed.bankBalances !== null ? parsed.bankBalances : {},
         };
       }
     } catch {}

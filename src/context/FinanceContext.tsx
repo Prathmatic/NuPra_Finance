@@ -531,11 +531,24 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(localBudgets?.userBudgets || {}),
       ...(rawLoadedBudgets?.userBudgets || {}),
     };
-    // Merge monthlyBudgets: remote wins for any month key it provides
+    // Merge monthlyBudgets deeply: remote month keys and userBudgets merged
     const mergedMonthlyBudgets: Record<string, MonthlyBudgetRecord> = {
       ...(localBudgets?.monthlyBudgets || {}),
-      ...(rawLoadedBudgets?.monthlyBudgets || {}),
     };
+    if (rawLoadedBudgets?.monthlyBudgets) {
+      Object.entries(rawLoadedBudgets.monthlyBudgets).forEach(([mKey, rMonth]) => {
+        const lMonth = mergedMonthlyBudgets[mKey] || {};
+        mergedMonthlyBudgets[mKey] = {
+          couple: rMonth.couple !== undefined && rMonth.couple > 0 ? rMonth.couple : (lMonth.couple || 0),
+          me: rMonth.me ?? lMonth.me ?? 0,
+          partner: rMonth.partner ?? lMonth.partner ?? 0,
+          userBudgets: {
+            ...(lMonth.userBudgets || {}),
+            ...(rMonth.userBudgets || {}),
+          },
+        };
+      });
+    }
     const currentUserId = currentUserRef.current?.id;
     const activeVault = vaultRef.current || vault;
     const partnerId = partner?.id || (activeVault?.partner1?.id === currentUserId ? activeVault?.partner2?.id : activeVault?.partner1?.id);
@@ -946,18 +959,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
     }
 
-    // If no month is specified OR isDefault is true, update the base/default budget
-    let newCouple = activeBudgets.couple || 0;
+    // Update couple budget: always apply if provided
+    const newCouple = newBudgets.couple !== undefined
+      ? Math.max(0, newBudgets.couple)
+      : (activeBudgets.couple || 0);
+
     if (!newBudgets.month || newBudgets.isDefault) {
       if (newBudgets.myBudget !== undefined) {
         updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
       } else if (newBudgets.me !== undefined) {
         updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
       }
-
-      newCouple = newBudgets.couple !== undefined
-        ? Math.max(0, newBudgets.couple)
-        : (activeBudgets.couple || 0);
     }
 
     const myAmount = updatedUserBudgets[currentUserId] || 0;
