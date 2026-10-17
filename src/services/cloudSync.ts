@@ -307,16 +307,31 @@ export const CloudStore = {
     CloudStore.broadcast('bills_updated', bills);
   },
 
-  /* ── Currency ────────────────────────────────────────────────────── */
-  getCurrency(): CurrencyCode {
+  /* ── Currency (Independent per user) ────────────────────────────── */
+  getUserCurrency(userId?: string): CurrencyCode {
     try {
+      if (userId) {
+        const u = localStorage.getItem(`${KEYS.CURRENCY}_${userId}`);
+        if (u === 'INR' || u === 'EUR') return u as CurrencyCode;
+      }
       const d = localStorage.getItem(KEYS.CURRENCY);
       return (d as CurrencyCode) || 'INR';
     } catch { return 'INR'; }
   },
-  saveCurrency(c: CurrencyCode) {
-    safeSetItem(KEYS.CURRENCY, c);
-    CloudStore.broadcast('currency_updated', c);
+  getCurrency(userId?: string): CurrencyCode {
+    return CloudStore.getUserCurrency(userId);
+  },
+  saveUserCurrency(c: CurrencyCode, userId?: string) {
+    try {
+      if (userId) {
+        safeSetItem(`${KEYS.CURRENCY}_${userId}`, c);
+      }
+      safeSetItem(KEYS.CURRENCY, c);
+      CloudStore.broadcast('currency_updated', { currency: c, userId });
+    } catch {}
+  },
+  saveCurrency(c: CurrencyCode, userId?: string) {
+    CloudStore.saveUserCurrency(c, userId);
   },
 
   /* ── Budgets (Defaults to 0 for all) ──────────────────────────────── */

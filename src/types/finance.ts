@@ -38,6 +38,7 @@ export interface BudgetsConfig {
   userBudgets?: Record<string, number>;
   bankBalances?: Record<string, number>;
   monthlyBudgets?: Record<string, MonthlyBudgetRecord>;
+  userCurrencies?: Record<string, CurrencyCode>;
 }
 
 export interface Category {

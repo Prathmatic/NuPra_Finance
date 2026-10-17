@@ -320,6 +320,7 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
             userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
             monthlyBudgets: typeof parsed.monthlyBudgets === 'object' && parsed.monthlyBudgets !== null ? parsed.monthlyBudgets : {},
             bankBalances: typeof parsed.bankBalances === 'object' && parsed.bankBalances !== null ? parsed.bankBalances : {},
+            userCurrencies: typeof parsed.userCurrencies === 'object' && parsed.userCurrencies !== null ? parsed.userCurrencies : {},
           };
         }
       } catch {}
@@ -463,6 +464,7 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
           userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
           monthlyBudgets: typeof parsed.monthlyBudgets === 'object' && parsed.monthlyBudgets !== null ? parsed.monthlyBudgets : {},
           bankBalances: typeof parsed.bankBalances === 'object' && parsed.bankBalances !== null ? parsed.bankBalances : {},
+          userCurrencies: typeof parsed.userCurrencies === 'object' && parsed.userCurrencies !== null ? parsed.userCurrencies : {},
         };
       }
     } catch {}

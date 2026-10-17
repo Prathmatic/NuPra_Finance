@@ -164,7 +164,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [goals, setGoals] = useState<FinanceGoal[]>(() => CloudStore.getGoals());
   const [stocks, setStocks] = useState<StockInvestment[]>(() => CloudStore.getStocks());
   const [bills, setBills] = useState<BillItem[]>(() => CloudStore.getBills());
-  const [currency, setCurrencyState] = useState<CurrencyCode>(() => CloudStore.getCurrency());
+  const [currency, setCurrencyState] = useState<CurrencyCode>(() => {
+    const currentSavedUser = CloudStore.getCurrentUser();
+    return CloudStore.getUserCurrency(currentSavedUser?.id);
+  });
   const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
 
   // Exchange rate state (EUR -> INR) with synchronous global sync
@@ -331,6 +334,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     const now = Date.now();
+    const currentUserId = currentUserRef.current?.id;
+    const currentBudgets = overrides?.budgets ?? budgetsRef.current ?? { couple: 0, me: 0, partner: 0 };
+    const mergedUserCurrencies: Record<string, CurrencyCode> = {
+      ...(currentBudgets.userCurrencies || {}),
+      ...(currentUserId ? { [currentUserId]: currencyRef.current } : {}),
+    };
+    const budgetsToSave: BudgetsConfig = {
+      ...currentBudgets,
+      userCurrencies: mergedUserCurrencies,
+    };
     const snapshotToSave: FinanceSnapshot = {
       transactions: cleanTxs,
       goals: overrides?.goals ?? goalsRef.current,
@@ -338,7 +351,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       bills: overrides?.bills ?? billsRef.current,
       categories: overrides?.categories ?? categoriesRef.current,
       currency: overrides?.currency ?? currencyRef.current,
-      budgets: overrides?.budgets ?? budgetsRef.current,
+      budgets: budgetsToSave,
       updatedAt: now,
     };
     lastAppliedSnapshotTimestampRef.current = now;
@@ -521,15 +534,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const validCategories = Array.from(categoryMap.values());
 
-    // 6. Currency
-    const validCurrency = snapshot.currency || 'INR';
-
-    // 7. Budgets (Preserve each partner's userBudgets by specific user ID, and merge monthlyBudgets)
+    // 7. Budgets (Preserve each partner's userBudgets and userCurrencies by specific user ID, and merge monthlyBudgets)
     const rawLoadedBudgets = snapshot.budgets || CloudStore.getBudgets();
     const localBudgets = budgetsRef.current || CloudStore.getBudgets();
     const mergedUserBudgets: Record<string, number> = {
       ...(localBudgets?.userBudgets || {}),
       ...(rawLoadedBudgets?.userBudgets || {}),
+    };
+    const mergedUserCurrencies: Record<string, CurrencyCode> = {
+      ...(localBudgets?.userCurrencies || {}),
+      ...(rawLoadedBudgets?.userCurrencies || {}),
     };
     // Merge monthlyBudgets deeply: remote month keys and userBudgets merged
     const mergedMonthlyBudgets: Record<string, MonthlyBudgetRecord> = {
@@ -584,7 +598,20 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       partner: Number(resolvedPartner),
       monthlyBudgets: mergedMonthlyBudgets,
       bankBalances: mergedBankBalances,
+      userCurrencies: mergedUserCurrencies,
     };
+
+    // 6. Currency (User-independent preference: preserve local user's choice)
+    let resolvedCurrency: CurrencyCode = currencyRef.current;
+    if (currentUserId && mergedUserCurrencies[currentUserId]) {
+      resolvedCurrency = mergedUserCurrencies[currentUserId];
+    } else if (currentUserId) {
+      resolvedCurrency = CloudStore.getUserCurrency(currentUserId);
+    } else if (currencyRef.current) {
+      resolvedCurrency = currencyRef.current;
+    } else {
+      resolvedCurrency = CloudStore.getUserCurrency();
+    }
 
     // Update state & refs
     setTransactions(mergedTxs);
@@ -597,8 +624,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     billsRef.current = mergedBills;
     setCategories(validCategories);
     categoriesRef.current = validCategories;
-    setCurrencyState(validCurrency);
-    currencyRef.current = validCurrency;
+    setCurrencyState(resolvedCurrency);
+    currencyRef.current = resolvedCurrency;
     setBudgets(loadedBudgets);
     budgetsRef.current = loadedBudgets;
 
@@ -608,7 +635,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveStocks(mergedStocks);
     CloudStore.saveBills(mergedBills);
     CloudStore.saveCategories(validCategories);
-    CloudStore.saveCurrency(validCurrency);
+    CloudStore.saveUserCurrency(resolvedCurrency, currentUserId);
     CloudStore.saveBudgets(loadedBudgets);
   }, []);
 
@@ -639,6 +666,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       currentUserRef.current = workspace.currentUser;
       setVault(workspace.vault);
       vaultRef.current = workspace.vault;
+      if (workspace.currentUser) {
+        CloudStore.saveCurrentUser(workspace.currentUser);
+        const userPref = workspace.snapshot?.budgets?.userCurrencies?.[workspace.currentUser.id]
+          || CloudStore.getUserCurrency(workspace.currentUser.id);
+        currencyRef.current = userPref;
+        setCurrencyState(userPref);
+      }
       applyWorkspaceSnapshot(workspace.snapshot ?? emptySnapshot());
       setIsOnboarded(Boolean(workspace.partner));
       setAuthError('');
@@ -688,7 +722,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         currentUserRef.current = workspace.currentUser;
         setVault(workspace.vault);
         vaultRef.current = workspace.vault;
-        if (workspace.currentUser) CloudStore.saveCurrentUser(workspace.currentUser);
+        if (workspace.currentUser) {
+          CloudStore.saveCurrentUser(workspace.currentUser);
+          const initialUserCurrency = workspace.snapshot?.budgets?.userCurrencies?.[workspace.currentUser.id]
+            || CloudStore.getUserCurrency(workspace.currentUser.id);
+          currencyRef.current = initialUserCurrency;
+          setCurrencyState(initialUserCurrency);
+        }
         if (workspace.vault) CloudStore.saveVault(workspace.vault);
         if (workspace.snapshot) applyWorkspaceSnapshot(workspace.snapshot);
         else applyWorkspaceSnapshot(emptySnapshot());
@@ -757,7 +797,15 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (type === 'bills_updated')        setBills(payload as BillItem[]);
       if (type === 'categories_updated')   setCategories(payload as Category[]);
       if (type === 'vault_updated')        setVault(payload as CoupleVault);
-      if (type === 'currency_updated')     setCurrencyState(payload as CurrencyCode);
+      if (type === 'currency_updated') {
+        const payloadData = payload as { currency?: CurrencyCode; userId?: string } | CurrencyCode;
+        const newCurrency = typeof payloadData === 'object' && payloadData?.currency ? payloadData.currency : (payloadData as CurrencyCode);
+        const targetUserId = typeof payloadData === 'object' ? payloadData?.userId : undefined;
+        if (!targetUserId || targetUserId === currentUserRef.current?.id) {
+          setCurrencyState(newCurrency);
+          currencyRef.current = newCurrency;
+        }
+      }
       if (type === 'budgets_updated')      setBudgets(payload as BudgetsConfig);
     });
     return unsubscribe;
@@ -792,14 +840,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  /* ─── Currency ────────────────────────────────────────────────────────── */
+  /* ─── Currency (Independent per user) ─────────────────────────────────── */
   const setCurrency = (c: CurrencyCode) => {
     setCurrencyState(c);
     currencyRef.current = c;
-    CloudStore.saveCurrency(c);
+    const currentUserId = currentUserRef.current?.id;
+    CloudStore.saveUserCurrency(c, currentUserId);
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ currency: c });
+
+    const currentBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0 };
+    const updatedUserCurrencies: Record<string, CurrencyCode> = {
+      ...(currentBudgets.userCurrencies || {}),
+      ...(currentUserId ? { [currentUserId]: c } : {}),
+    };
+    const updatedBudgets: BudgetsConfig = {
+      ...currentBudgets,
+      userCurrencies: updatedUserCurrencies,
+    };
+    setBudgets(updatedBudgets);
+    budgetsRef.current = updatedBudgets;
+    CloudStore.saveBudgets(updatedBudgets);
+    void pushToCloud({ budgets: updatedBudgets });
   };
 
   /* ─── User profile ────────────────────────────────────────────────────── */
