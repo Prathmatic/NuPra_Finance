@@ -58,10 +58,10 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   const currencySymbol = getCurrencySymbol(currency);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+      <div className="relative w-full max-w-md glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl max-h-[90vh] flex flex-col my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-white/10">
+        <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
               <PiggyBank className="w-5 h-5" />
@@ -79,7 +79,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4 overflow-y-auto flex-1 pr-1">
           {/* Couple Joint Monthly Budget (Both partners can set/modify) */}
           <div className="p-3.5 rounded-2xl bg-slate-800/40 border border-indigo-500/20 space-y-2">
             <div className="flex items-center justify-between">

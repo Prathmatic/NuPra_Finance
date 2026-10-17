@@ -16,7 +16,8 @@ import {
   HandCoins,
   ArrowUpRight,
   ArrowDownLeft,
-  Sparkles
+  Sparkles,
+  Target
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { calculateSplitwiseBalance, getBillSplitInfo } from '../../utils/splitwise';
@@ -38,6 +39,7 @@ export const BillsView: React.FC = () => {
   const [tab, setTab] = useState<'all' | 'unpaid' | 'paid' | 'debts'>('all');
   const [isAddBillOpen, setIsAddBillOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
+  const [settlingBill, setSettlingBill] = useState<BillItem | null>(null);
 
   // Splitwise Net Calculations
   const splitwiseSummary = useMemo(() => {
@@ -282,6 +284,13 @@ export const BillsView: React.FC = () => {
                         {b.title}
                       </p>
 
+                      {/* Goal-Based Bill Badge */}
+                      {b.isGoalBased && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30 flex items-center gap-1">
+                          <Target className="w-2.5 h-2.5" /> Goal Based
+                        </span>
+                      )}
+
                       {/* Paid or Unpaid Badge */}
                       {b.isPaid ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 flex items-center gap-1">
@@ -357,34 +366,90 @@ export const BillsView: React.FC = () => {
 
                   {/* Actions for this bill */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {/* If unpaid, allow paying as currentUser */}
-                    {!b.isPaid && (
-                      <button
-                        onClick={() => markBillAsPaid(b.id, currentUser!.id, currentUser!.name)}
-                        className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1"
-                        title="Mark as paid by you"
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>I Paid</span>
-                      </button>
-                    )}
+                    {/* Only the person who needs to pay/owes gets the "I Paid" option */}
+                    {(() => {
+                      const currentUserOwes = 
+                        splitInfo.status === 'you_owe_partner' || 
+                        splitInfo.status === 'shared_unpaid' ||
+                        (splitInfo.status === 'personal' && (b.payerId === currentUser?.id || !b.payerId));
 
-                    {/* If unsettled debt, allow settling this bill */}
-                    {isUnsettledDebt && (
-                      <button
-                        onClick={() => settleBill(b.id)}
-                        className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold transition-all flex items-center gap-1"
-                        title="Mark this bill's debt as settled"
-                      >
-                        <CheckCircle className="w-3 h-3 text-emerald-400" />
-                        <span>Settle</span>
-                      </button>
-                    )}
+                      const showIPaid = !b.isPaid && currentUserOwes;
+                      const showSettle = isUnsettledDebt;
+
+                      return (
+                        <>
+                          {showIPaid && (
+                            <button
+                              onClick={() => markBillAsPaid(b.id, currentUser!.id, currentUser!.name)}
+                              className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1"
+                              title="Mark as paid by you"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>I Paid</span>
+                            </button>
+                          )}
+
+                          {showSettle && (
+                            <button
+                              onClick={() => setSettlingBill(b)}
+                              className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold transition-all flex items-center gap-1"
+                              title="Mark this bill's debt as settled"
+                            >
+                              <CheckCircle className="w-3 h-3 text-emerald-400" />
+                              <span>Settle</span>
+                            </button>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Settle Single Bill Confirmation Modal */}
+      {settlingBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-sm glass-panel bg-slate-900 border border-white/15 rounded-3xl p-6 shadow-2xl space-y-4 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+              <CheckCircle className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-white">Settle This Bill?</h3>
+              <p className="text-xs text-slate-300">
+                Do you really want to settle <strong className="text-white">"{settlingBill.title}"</strong> for{' '}
+                <strong className="text-emerald-400">{formatCurrency(settlingBill.amount, currency)}</strong>?
+              </p>
+              <p className="text-[11px] text-slate-400">
+                This will mark the debt as settled and reflect across the entire dashboard and account for both you and {partnerName}.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setSettlingBill(null)}
+                className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-all"
+              >
+                No, Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  settleBill(settlingBill.id);
+                  setSettlingBill(null);
+                }}
+                className="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Yes, Settle</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -13,19 +13,21 @@ import { OnboardingFlow } from './components/auth/OnboardingFlow';
 import { AddTransactionModal } from './components/transactions/AddTransactionModal';
 import { AddGoalModal } from './components/goals/AddGoalModal';
 import { AddStockModal } from './components/stocks/AddStockModal';
-import { Smartphone, Monitor, Loader2 } from 'lucide-react';
+import { SplashScreen } from './components/common/SplashScreen';
+import { Smartphone, Monitor } from 'lucide-react';
 
 const MainContent: React.FC = () => {
   const { activeTab, isOnboarded, completeOnboarding, currentUser, isAuthLoading, authError } = useFinance();
 
+  const [isSplashDone, setIsSplashDone] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [isAddGoalOpen, setIsAddGoalOpen] = useState(false);
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
   const [isMobileFrameMode, setIsMobileFrameMode] = useState(false);
 
-  if (isAuthLoading) {
-    return <div className="fixed inset-0 flex items-center justify-center bg-[#070a13] text-slate-300"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+  if (!isSplashDone) {
+    return <SplashScreen onComplete={() => setIsSplashDone(true)} isReady={!isAuthLoading} duration={2400} />;
   }
 
   if (!isOnboarded) {

@@ -12,35 +12,35 @@ interface ContributeModalProps {
 }
 
 export const ContributeModal: React.FC<ContributeModalProps> = ({ goal, isOpen, onClose }) => {
-  const { contributeToGoal, currency, currentUser, partner, transactions } = useFinance();
+  const { contributeToGoal, currency, currentUser, partner, transactions, goals } = useFinance();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
-  // Calculate my net savings (income - expenses) from all transactions for current user
-  const mySavings = useMemo(() => {
+  // Calculate my available savings (Income - Expenses - Committed Goal Allocations)
+  const availableSavings = useMemo(() => {
     if (!currentUser) return 0;
     let income = 0;
-    let expenses = 0;
+    let realExpenses = 0;
     transactions.forEach(tx => {
       if (tx.userId !== currentUser.id) return;
+      const isGoalTx = tx.title?.startsWith('Goal Savings:') || tx.title?.includes('Goal Savings');
       if (tx.type === 'income') income += tx.amount;
-      else if (tx.type === 'expense') expenses += tx.amount;
+      else if (tx.type === 'expense' && !isGoalTx) realExpenses += tx.amount;
     });
-    return Math.max(0, income - expenses);
-  }, [transactions, currentUser]);
 
-  // Calculate how much I've already contributed to all goals (total locked-in savings)
-  const myTotalGoalContributions = useMemo(() => {
-    if (!currentUser) return 0;
-    // We look at transactions with title starting "Goal Savings:" for current user
-    return transactions
-      .filter(tx => tx.userId === currentUser.id && tx.title?.startsWith('Goal Savings:') && tx.type === 'expense')
-      .reduce((sum, tx) => sum + tx.amount, 0);
-  }, [transactions, currentUser]);
+    let goalAllocations = 0;
+    (goals || []).forEach(g => {
+      (g.contributions || []).forEach(c => {
+        if (c.userId === currentUser.id) {
+          goalAllocations += c.amount;
+        }
+      });
+    });
 
-  // Available savings = net balance minus already-committed goal contributions
-  // But simpler: just net balance (goal contributions are already counted as expenses in transactions)
-  const availableSavings = mySavings;
+    return Math.max(0, income - realExpenses - goalAllocations);
+  }, [transactions, goals, currentUser]);
+
+  const mySavings = availableSavings;
 
   if (!isOpen || !goal) return null;
 

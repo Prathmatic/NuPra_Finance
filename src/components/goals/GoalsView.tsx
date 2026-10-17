@@ -57,21 +57,32 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
   }, [viewMode]);
 
   // ── Savings calculations ──────────────────────────────────────────────────
-  // Net savings = income - expenses per user across ALL transactions
+  // Net savings = income - expenses - goal allocations per user across ALL transactions
   const { mySavings, partnerSavings } = useMemo(() => {
     const incomeMap: Record<string, number> = {};
     const expenseMap: Record<string, number> = {};
+    const goalAllocMap: Record<string, number> = {};
+
+    goals.forEach(g => {
+      g.contributions.forEach(c => {
+        if (c.userId) {
+          goalAllocMap[c.userId] = (goalAllocMap[c.userId] || 0) + c.amount;
+        }
+      });
+    });
+
     transactions.forEach(tx => {
       if (!tx.userId) return;
+      const isGoalTx = tx.title?.startsWith('Goal Savings:') || tx.title?.includes('Goal Savings');
       if (tx.type === 'income') incomeMap[tx.userId] = (incomeMap[tx.userId] || 0) + tx.amount;
-      else if (tx.type === 'expense') expenseMap[tx.userId] = (expenseMap[tx.userId] || 0) + tx.amount;
+      else if (tx.type === 'expense' && !isGoalTx) expenseMap[tx.userId] = (expenseMap[tx.userId] || 0) + tx.amount;
     });
     const myId = currentUser?.id;
     const partnerId = partner?.id;
-    const myNet = myId ? Math.max(0, (incomeMap[myId] || 0) - (expenseMap[myId] || 0)) : 0;
-    const partnerNet = partnerId ? Math.max(0, (incomeMap[partnerId] || 0) - (expenseMap[partnerId] || 0)) : 0;
+    const myNet = myId ? Math.max(0, (incomeMap[myId] || 0) - (expenseMap[myId] || 0) - (goalAllocMap[myId] || 0)) : 0;
+    const partnerNet = partnerId ? Math.max(0, (incomeMap[partnerId] || 0) - (expenseMap[partnerId] || 0) - (goalAllocMap[partnerId] || 0)) : 0;
     return { mySavings: myNet, partnerSavings: partnerNet };
-  }, [transactions, currentUser, partner]);
+  }, [transactions, goals, currentUser, partner]);
 
   const totalSavingsTogether = mySavings + partnerSavings;
 
@@ -740,6 +751,16 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
                       style={{ width: `${progress}%`, backgroundColor: goal.color }}
                     />
                   </div>
+
+                  {/* Goal Bill Paid Info (when a goal-based bill is paid) */}
+                  {Boolean(goal.spentAmount && goal.spentAmount > 0) && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="truncate">
+                        Goal Bill Paid: <strong className="text-white">{formatCurrency(goal.spentAmount || 0, currency)}</strong> deducted as expense
+                      </span>
+                    </div>
+                  )}
 
                   {/* Amount needed + deposit button */}
                   <div className="p-3 rounded-2xl bg-slate-900/80 border border-white/5 flex items-center justify-between gap-3">

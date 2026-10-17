@@ -9,7 +9,8 @@ import {
   ArrowUpRight, 
   ArrowDownLeft,
   CheckCircle,
-  Clock
+  Clock,
+  Target
 } from 'lucide-react';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 
@@ -19,12 +20,16 @@ interface AddBillModalProps {
 }
 
 export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) => {
-  const { currency, addBill, currentUser, partner } = useFinance();
+  const { currency, addBill, currentUser, partner, goals } = useFinance();
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
   const [categoryName, setCategoryName] = useState('Utilities');
   const [recurring, setRecurring] = useState<'none' | 'monthly' | 'yearly'>('monthly');
+
+  // Goal-based bill states
+  const [isGoalBased, setIsGoalBased] = useState(false);
+  const [selectedGoalId, setSelectedGoalId] = useState('');
 
   // Splitwise options
   const [paidStatus, setPaidStatus] = useState<'unpaid' | 'paid_by_me'>('unpaid');
@@ -65,12 +70,14 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
       splitType = 'personal';
     }
 
+    const matchedGoal = isGoalBased ? (goals || []).find(g => g.id === selectedGoalId) : undefined;
+
     addBill({
       title: title.trim(),
       amount: parsedAmount,
       dueDate,
-      categoryName,
-      categoryColor: '#F97316',
+      categoryName: isGoalBased ? 'Goal' : categoryName,
+      categoryColor: isGoalBased ? (matchedGoal?.color || '#10B981') : '#F97316',
       recurring,
       splitType,
       isPaid,
@@ -82,10 +89,15 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
       borrowerId,
       borrowerName,
       isSettled: false,
+      isGoalBased,
+      goalId: matchedGoal?.id,
+      goalTitle: matchedGoal?.title,
     });
 
     setTitle('');
     setAmount('');
+    setIsGoalBased(false);
+    setSelectedGoalId('');
     setPaidStatus('unpaid');
     setSplitOption('equal');
     onClose();
@@ -114,6 +126,65 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          {/* Goal-Based Checkbox & Dropdown */}
+          <div className="p-3.5 rounded-2xl bg-slate-800/60 border border-emerald-500/20 space-y-2.5">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isGoalBased}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsGoalBased(checked);
+                  if (checked && goals && goals.length > 0) {
+                    const firstGoal = goals[0];
+                    setSelectedGoalId(firstGoal.id);
+                    setTitle(firstGoal.title);
+                    setAmount(firstGoal.targetAmount.toString());
+                  }
+                }}
+                className="w-4 h-4 rounded border-white/20 bg-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-emerald-500"
+              />
+              <div className="flex items-center gap-1.5">
+                <Target className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold text-white">Is this bill Goal Based?</span>
+              </div>
+            </label>
+
+            {isGoalBased && (
+              <div className="pt-2 border-t border-white/5 space-y-2 animate-in fade-in duration-200">
+                <label className="block text-[11px] font-semibold text-slate-300">
+                  Select Associated Goal:
+                </label>
+                {(!goals || goals.length === 0) ? (
+                  <p className="text-xs text-amber-400">No goals found. Create a goal first.</p>
+                ) : (
+                  <select
+                    value={selectedGoalId}
+                    onChange={(e) => {
+                      const gId = e.target.value;
+                      setSelectedGoalId(gId);
+                      const g = goals.find(goal => goal.id === gId);
+                      if (g) {
+                        setTitle(g.title);
+                        setAmount(g.targetAmount.toString());
+                      }
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-emerald-500"
+                  >
+                    {goals.map(g => (
+                      <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+                        {g.title} ({formatCurrency(g.targetAmount, currency)} · {g.currentAmount >= g.targetAmount ? 'Completed' : `${Math.round((g.currentAmount / g.targetAmount) * 100)}%`})
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-[10px] text-slate-400">
+                  When this bill is paid, the amount is deducted as an expense and reflects directly in the goal as paid/spent.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">Bill Name</label>
             <input

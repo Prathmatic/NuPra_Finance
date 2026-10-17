@@ -23,13 +23,24 @@ import {
   Calendar, 
   DollarSign, 
   Sparkles,
-  Users
+  Users,
+  Landmark,
+  Wallet
 } from 'lucide-react';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { GoalStatsCard } from '../goals/GoalStatsCard';
 
 export const StatisticsView: React.FC = () => {
-  const { transactions, goals, stocks, currency, currentUser, partner } = useFinance();
+  const { 
+    transactions, 
+    goals, 
+    stocks, 
+    currency, 
+    currentUser, 
+    partner,
+    bankBalances,
+    selectedMonth 
+  } = useFinance();
   const [timeframe, setTimeframe] = useState<'monthly' | 'yearly'>('monthly');
 
   const currencySymbol = getCurrencySymbol(currency);
@@ -38,17 +49,31 @@ export const StatisticsView: React.FC = () => {
   const { mySavings, partnerSavings, totalSavingsTogether } = useMemo(() => {
     const incomeMap: Record<string, number> = {};
     const expenseMap: Record<string, number> = {};
+    const goalContribMap: Record<string, number> = {};
+
+    (goals || []).forEach(g => {
+      (g.contributions || []).forEach(c => {
+        if (c.userId) {
+          goalContribMap[c.userId] = (goalContribMap[c.userId] || 0) + c.amount;
+        }
+      });
+    });
+
     transactions.forEach(tx => {
       if (!tx.userId) return;
-      if (tx.type === 'income') incomeMap[tx.userId] = (incomeMap[tx.userId] || 0) + tx.amount;
-      else if (tx.type === 'expense') expenseMap[tx.userId] = (expenseMap[tx.userId] || 0) + tx.amount;
+      const isGoalTx = tx.title?.startsWith('Goal Savings:') || tx.title?.includes('Goal Savings');
+      if (tx.type === 'income') {
+        incomeMap[tx.userId] = (incomeMap[tx.userId] || 0) + tx.amount;
+      } else if (tx.type === 'expense' && !isGoalTx) {
+        expenseMap[tx.userId] = (expenseMap[tx.userId] || 0) + tx.amount;
+      }
     });
     const myId = currentUser?.id;
     const partnerId = partner?.id;
-    const myNet = myId ? Math.max(0, (incomeMap[myId] || 0) - (expenseMap[myId] || 0)) : 0;
-    const partnerNet = partnerId ? Math.max(0, (incomeMap[partnerId] || 0) - (expenseMap[partnerId] || 0)) : 0;
+    const myNet = myId ? Math.max(0, (incomeMap[myId] || 0) - (expenseMap[myId] || 0) - (goalContribMap[myId] || 0)) : 0;
+    const partnerNet = partnerId ? Math.max(0, (incomeMap[partnerId] || 0) - (expenseMap[partnerId] || 0) - (goalContribMap[partnerId] || 0)) : 0;
     return { mySavings: myNet, partnerSavings: partnerNet, totalSavingsTogether: myNet + partnerNet };
-  }, [transactions, currentUser, partner]);
+  }, [transactions, goals, currentUser, partner]);
 
   // 1. Monthly & Yearly Individual vs Together Savings & Expenses
   const { monthlyData, yearlyData } = useMemo(() => {
@@ -58,6 +83,7 @@ export const StatisticsView: React.FC = () => {
     transactions.forEach(t => {
       const monthKey = t.date.slice(0, 7); // "YYYY-MM"
       const yearKey = t.date.slice(0, 4);  // "YYYY"
+      const isGoalTx = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
 
       // Month
       if (!monthMap[monthKey]) {
@@ -65,10 +91,10 @@ export const StatisticsView: React.FC = () => {
       }
       if (t.userId === currentUser!.id) {
         if (t.type === 'income') monthMap[monthKey].myIncome += t.amount;
-        else monthMap[monthKey].myExpense += t.amount;
+        else if (!isGoalTx) monthMap[monthKey].myExpense += t.amount;
       } else {
         if (t.type === 'income') monthMap[monthKey].partnerIncome += t.amount;
-        else monthMap[monthKey].partnerExpense += t.amount;
+        else if (!isGoalTx) monthMap[monthKey].partnerExpense += t.amount;
       }
 
       // Year
@@ -77,10 +103,10 @@ export const StatisticsView: React.FC = () => {
       }
       if (t.userId === currentUser!.id) {
         if (t.type === 'income') yearMap[yearKey].myIncome += t.amount;
-        else yearMap[yearKey].myExpense += t.amount;
+        else if (!isGoalTx) yearMap[yearKey].myExpense += t.amount;
       } else {
         if (t.type === 'income') yearMap[yearKey].partnerIncome += t.amount;
-        else yearMap[yearKey].partnerExpense += t.amount;
+        else if (!isGoalTx) yearMap[yearKey].partnerExpense += t.amount;
       }
     });
 
@@ -174,6 +200,87 @@ export const StatisticsView: React.FC = () => {
     ];
   }, [stocks, currentUser, partner]);
 
+  // 5. Total Bank Amount vs Period Expenses vs Goals (User Key Requirement: Pie Plot)
+  const bankDistributionData = useMemo(() => {
+    // Current Liquid Bank Amount
+    const myInit = Number(currentUser ? (bankBalances[currentUser.id] || 0) : 0);
+    const pInit = Number(partner ? (bankBalances[partner.id] || 0) : 0);
+    let delta = 0;
+
+    transactions.forEach(t => {
+      const isGoalSavings = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
+      if (isGoalSavings) return;
+      if (t.type === 'income') delta += t.amount;
+      else if (t.type === 'expense') delta -= t.amount;
+    });
+
+    const currentBankReserves = Math.max(0, myInit + pInit + delta);
+
+    // Period Expenses & Goals
+    const filterKey = timeframe === 'monthly' ? selectedMonth : selectedMonth.slice(0, 4);
+
+    let periodExpenses = 0;
+    let periodGoalExpenses = 0;
+
+    transactions.forEach(t => {
+      if (t.date.startsWith(filterKey) && t.type === 'expense') {
+        const isGoalContribution = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
+        const isGoalBill = Boolean(t.isGoalExpense || t.title?.startsWith('Goal Expense:') || t.title?.includes('Goal Expense'));
+
+        if (isGoalBill) {
+          periodGoalExpenses += t.amount;
+        } else if (!isGoalContribution) {
+          periodExpenses += t.amount;
+        }
+      }
+    });
+
+    // Goal allocations / contributions for this period
+    let periodGoalContributions = 0;
+    (goals || []).forEach(g => {
+      (g.contributions || []).forEach(c => {
+        if (c.date && c.date.startsWith(filterKey)) {
+          periodGoalContributions += c.amount;
+        }
+      });
+    });
+
+    const totalGoalsCapital = periodGoalContributions + periodGoalExpenses;
+    const totalCombined = currentBankReserves + periodExpenses + totalGoalsCapital;
+
+    const chartData = [
+      {
+        name: 'Liquid Bank Reserves',
+        value: currentBankReserves,
+        color: '#0ea5e9', // Sky Cyan
+        description: 'Remaining available in bank accounts',
+      },
+      {
+        name: timeframe === 'monthly' ? 'Monthly Expenses' : 'Yearly Expenses',
+        value: periodExpenses,
+        color: '#f43f5e', // Rose
+        description: 'Living spending & recurring bills',
+      },
+      {
+        name: timeframe === 'monthly' ? 'Monthly Goals' : 'Yearly Goals',
+        value: totalGoalsCapital,
+        color: '#10b981', // Emerald
+        description: 'Allocated to couple savings & goal expenses',
+      },
+    ].filter(item => item.value > 0);
+
+    return {
+      currentBankReserves,
+      periodExpenses,
+      totalGoalsCapital,
+      totalCombined,
+      chartData: chartData.length > 0 ? chartData : [
+        { name: 'Liquid Bank Reserves', value: 1, color: '#0ea5e9', description: 'No activity recorded yet' }
+      ],
+      filterKey,
+    };
+  }, [bankBalances, currentUser, partner, transactions, goals, timeframe, selectedMonth]);
+
   const partnerName = partner?.name || 'Partner';
 
   return (
@@ -206,6 +313,134 @@ export const StatisticsView: React.FC = () => {
           >
             Yearly
           </button>
+        </div>
+      </div>
+
+      {/* HERO PIE PLOT: BANK RESERVES vs EXPENSES vs GOALS (User Key Requirement) */}
+      <div className="glass-card p-5 rounded-3xl border border-white/10 space-y-4 bg-gradient-to-br from-slate-900/90 via-slate-900/80 to-cyan-950/30 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-cyan-500/20 text-cyan-400">
+              <Landmark className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                Bank Reserves vs Expenses & Goals
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {timeframe === 'monthly' 
+                  ? `Capital breakdown for ${selectedMonth}` 
+                  : `Annual capital breakdown for ${selectedMonth.slice(0, 4)}`}
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-300 font-semibold border border-cyan-500/20">
+            Pie Distribution
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 items-center gap-4 pt-1">
+          {/* Donut Pie Plot */}
+          <div className="h-60 w-full relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={bankDistributionData.chartData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={4}
+                  dataKey="value"
+                >
+                  {bankDistributionData.chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
+                  formatter={(val: any) => [formatCurrency(Number(val), currency)]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* Center label inside Donut */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[10px] text-slate-400 font-medium">Tracked Capital</span>
+              <span className="text-xs font-black text-white">
+                {formatCurrency(bankDistributionData.totalCombined, currency)}
+              </span>
+            </div>
+          </div>
+
+          {/* Metric Breakdown Cards */}
+          <div className="space-y-2.5">
+            {/* 1. Liquid Bank Reserves */}
+            <div className="p-3 rounded-2xl bg-cyan-950/20 border border-cyan-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-3 h-3 rounded-full shrink-0 bg-[#0ea5e9]" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">Total Bank Reserves</p>
+                  <p className="text-[10px] text-slate-400">Available liquid balance</p>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-black text-cyan-400">
+                  {formatCurrency(bankDistributionData.currentBankReserves, currency)}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  {bankDistributionData.totalCombined > 0 
+                    ? `${Math.round((bankDistributionData.currentBankReserves / bankDistributionData.totalCombined) * 100)}%` 
+                    : '0%'}
+                </p>
+              </div>
+            </div>
+
+            {/* 2. Monthly / Yearly Expenses */}
+            <div className="p-3 rounded-2xl bg-rose-950/20 border border-rose-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-3 h-3 rounded-full shrink-0 bg-[#f43f5e]" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">
+                    {timeframe === 'monthly' ? 'Monthly Expenses' : 'Yearly Expenses'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">Living expenses & bills</p>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-black text-rose-400">
+                  {formatCurrency(bankDistributionData.periodExpenses, currency)}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  {bankDistributionData.totalCombined > 0 
+                    ? `${Math.round((bankDistributionData.periodExpenses / bankDistributionData.totalCombined) * 100)}%` 
+                    : '0%'}
+                </p>
+              </div>
+            </div>
+
+            {/* 3. Goals Capital */}
+            <div className="p-3 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-3 h-3 rounded-full shrink-0 bg-[#10b981]" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">
+                    {timeframe === 'monthly' ? 'Monthly Goals' : 'Yearly Goals'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">Allocations & goal expenses</p>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-black text-emerald-400">
+                  {formatCurrency(bankDistributionData.totalGoalsCapital, currency)}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  {bankDistributionData.totalCombined > 0 
+                    ? `${Math.round((bankDistributionData.totalGoalsCapital / bankDistributionData.totalCombined) * 100)}%` 
+                    : '0%'}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

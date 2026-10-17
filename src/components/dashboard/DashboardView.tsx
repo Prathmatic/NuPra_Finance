@@ -20,6 +20,7 @@ import { formatCurrency, formatDate } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
 import { MonthNavigator } from '../common/MonthNavigator';
 import { BudgetSettingsModal } from './BudgetSettingsModal';
+import { BankAccountsCard } from './BankAccountsCard';
 import { EditTransactionModal } from '../transactions/EditTransactionModal';
 import { TransactionActivityDrawer } from '../transactions/TransactionActivityDrawer';
 import { Transaction } from '../../types/finance';
@@ -47,6 +48,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setActiveTab,
     selectedMonth,
     budgets,
+    bankBalances,
+    updateBankBalance,
     toggleFlagTransaction,
     vault
   } = useFinance();
@@ -68,32 +71,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
   }, [transactions, viewMode, currentUser, partner]);
 
-  // Selected month income & expenses
-  const { monthlyIncome, monthlyExpense, myExpense, partnerExpense, totalCoupleExpense } = useMemo(() => {
+  // Selected month income & expenses:
+  // - Goal allocations (Goal Savings) and Goal bill expenses do NOT count toward Monthly Budget Limits
+  // - Goal bill expenses are tracked as Goal-based expenses for this month
+  const { 
+    monthlyIncome, 
+    monthlyExpense, 
+    monthlyGoalExpense,
+    myExpense, 
+    partnerExpense, 
+    totalCoupleExpense 
+  } = useMemo(() => {
     let income = 0;
     let expense = 0;
+    let goalExp = 0;
     let myExp = 0;
     let partnerExp = 0;
     let coupleTotalExp = 0;
 
+    // Couple-wide total expenses strictly for budget tracking (ignoring goal contributions & goal bill payments)
     transactions.forEach(t => {
-      if (t.date.startsWith(selectedMonth)) {
-        if (t.type === 'expense') {
+      if (t.date.startsWith(selectedMonth) && t.type === 'expense') {
+        const isGoalContribution = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
+        const isGoalBillExpense = Boolean(t.isGoalExpense || t.title?.startsWith('Goal Expense:') || t.title?.includes('Goal Expense'));
+
+        if (isGoalBillExpense) {
+          goalExp += t.amount;
+        }
+
+        // Budget limits strictly track everyday living expenses and regular bills
+        if (!isGoalContribution && !isGoalBillExpense) {
           coupleTotalExp += t.amount;
+          if (currentUser && t.userId === currentUser.id) {
+            myExp += t.amount;
+          } else if (partner && t.userId === partner.id) {
+            partnerExp += t.amount;
+          }
         }
       }
     });
 
+    // Filtered by viewMode for headline cards
     filteredTxs.forEach(t => {
       if (t.date.startsWith(selectedMonth)) {
         if (t.type === 'income') {
           income += t.amount;
-        } else {
-          expense += t.amount;
-          if (currentUser && t.userId === currentUser.id) {
-            myExp += t.amount;
-          } else {
-            partnerExp += t.amount;
+        } else if (t.type === 'expense') {
+          const isGoalContribution = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
+          // Goal internal savings allocations do not count as expense
+          if (!isGoalContribution) {
+            expense += t.amount;
           }
         }
       }
@@ -102,26 +129,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return {
       monthlyIncome: income,
       monthlyExpense: expense,
+      monthlyGoalExpense: goalExp,
       myExpense: myExp,
       partnerExpense: partnerExp,
       totalCoupleExpense: coupleTotalExp,
     };
-  }, [filteredTxs, transactions, selectedMonth, currentUser]);
+  }, [filteredTxs, transactions, selectedMonth, currentUser, partner]);
 
-  const monthlySavings = monthlyIncome - monthlyExpense;
+  // Goal allocations for the selected month (deducted from Savings only)
+  const monthlyGoalContributions = useMemo(() => {
+    let total = 0;
+    (goals || []).forEach(g => {
+      (g.contributions || []).forEach(c => {
+        if (c.date && c.date.startsWith(selectedMonth)) {
+          if (viewMode === 'me') {
+            if (currentUser && c.userId === currentUser.id) total += c.amount;
+          } else if (viewMode === 'partner') {
+            if (partner && c.userId === partner.id) total += c.amount;
+          } else {
+            total += c.amount;
+          }
+        }
+      });
+    });
+    return total;
+  }, [goals, selectedMonth, viewMode, currentUser, partner]);
+
+  // Net savings = Income - Real Expenses - Goal Allocations
+  const monthlySavings = monthlyIncome - monthlyExpense - monthlyGoalContributions;
   const savingsRate = monthlyIncome > 0 ? Math.round((monthlySavings / monthlyIncome) * 100) : 0;
 
-  // Budget calculations mapped accurately by user ID
-  const coupleLimit = Number(budgets.couple || 0);
+  // Budget calculations mapped accurately by user ID and fallback to vault limits
+  const coupleLimit = Number(
+    (budgets.couple && budgets.couple > 0) ? budgets.couple : (vault?.monthlyBudget || 0)
+  );
   const myLimit = Number(
-    (currentUser?.id ? budgets.userBudgets?.[currentUser.id] : undefined) 
-    ?? budgets.me 
-    ?? 0
+    (currentUser?.id && budgets.userBudgets?.[currentUser.id] && budgets.userBudgets[currentUser.id] > 0)
+      ? budgets.userBudgets[currentUser.id]
+      : (budgets.me && budgets.me > 0 ? budgets.me : (vault?.myBudget || 0))
   );
   const partnerLimit = Number(
-    (partner?.id ? budgets.userBudgets?.[partner.id] : undefined) 
-    ?? budgets.partner 
-    ?? 0
+    (partner?.id && budgets.userBudgets?.[partner.id] && budgets.userBudgets[partner.id] > 0)
+      ? budgets.userBudgets[partner.id]
+      : (budgets.partner && budgets.partner > 0 ? budgets.partner : (vault?.partnerBudget || 0))
   );
 
   const couplePercent = coupleLimit > 0 ? Math.round((totalCoupleExpense / coupleLimit) * 100) : 0;
@@ -231,6 +281,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Goal-Based Expenses Info Banner (if any occurred this month) */}
+      {monthlyGoalExpense > 0 && (
+        <div className="p-3.5 rounded-3xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between text-xs shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300">
+              <Target className="w-4 h-4 stroke-[2.5]" />
+            </div>
+            <div>
+              <p className="font-bold text-white">Goal-Based Expenses ({selectedMonth})</p>
+              <p className="text-[10px] text-purple-300/80">Paid from goal savings · Excluded from budget limits</p>
+            </div>
+          </div>
+          <span className="font-black text-purple-300 text-sm sm:text-base">
+            {formatCurrency(monthlyGoalExpense, currency)}
+          </span>
+        </div>
+      )}
+
+      {/* Couple Bank Accounts & Live Reserves */}
+      <BankAccountsCard
+        currentUser={currentUser}
+        partner={partner}
+        currency={currency}
+        bankBalances={bankBalances}
+        transactions={transactions}
+        updateBankBalance={updateBankBalance}
+      />
 
       {/* Monthly Budget Limits Widget (3 Progress Cards: Couple Joint, My Spending, Partner Spending) */}
       <div className="glass-card rounded-3xl p-4.5 border border-white/10 space-y-3.5 shadow-xl">
@@ -554,6 +632,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-xs font-bold text-white truncate max-w-[150px] sm:max-w-xs">{tx.title}</p>
+                          {(tx.isGoalExpense || tx.title?.startsWith('Goal Expense:')) && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] font-bold flex items-center gap-1">
+                              <Target className="w-2.5 h-2.5" />
+                              <span>Goal Expense</span>
+                            </span>
+                          )}
                           {isFlagged && (
                             <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold flex items-center gap-1">
                               <Flag className="w-2.5 h-2.5 fill-amber-400" />

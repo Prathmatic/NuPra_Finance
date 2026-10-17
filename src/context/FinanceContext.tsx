@@ -5,6 +5,7 @@ import {
   CoupleVault, 
   Transaction, 
   FinanceGoal, 
+  GoalContribution,
   GoalComment,
   GoalChangeProposal,
   GoalChangeRequest,
@@ -61,6 +62,8 @@ interface FinanceContextType {
   // Budgets (default 0)
   budgets: BudgetsConfig;
   updateBudgets: (newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => void;
+  bankBalances: Record<string, number>;
+  updateBankBalance: (userId: string, initialBalance: number) => void;
 
   // Auth
   completeOnboarding: (user: UserProfile, vault: CoupleVault) => Promise<void>;
@@ -470,11 +473,24 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const partnerId = partner?.id || (activeVault?.partner1?.id === currentUserId ? activeVault?.partner2?.id : activeVault?.partner1?.id);
 
     // Resolve individual budgets strictly by user ID to prevent swap between devices
-    const resolvedMe = currentUserId ? (mergedUserBudgets[currentUserId] ?? rawLoadedBudgets?.me ?? localBudgets?.me ?? 0) : 0;
-    const resolvedPartner = partnerId ? (mergedUserBudgets[partnerId] ?? rawLoadedBudgets?.partner ?? localBudgets?.partner ?? 0) : 0;
+    const resolvedMe = currentUserId
+      ? (mergedUserBudgets[currentUserId] && mergedUserBudgets[currentUserId] > 0
+          ? mergedUserBudgets[currentUserId]
+          : (rawLoadedBudgets?.me || localBudgets?.me || activeVault?.myBudget || 0))
+      : 0;
+
+    const resolvedPartner = partnerId
+      ? (mergedUserBudgets[partnerId] && mergedUserBudgets[partnerId] > 0
+          ? mergedUserBudgets[partnerId]
+          : (rawLoadedBudgets?.partner || localBudgets?.partner || activeVault?.partnerBudget || 0))
+      : 0;
+
+    const coupleBudget = (rawLoadedBudgets?.couple && rawLoadedBudgets.couple > 0)
+      ? rawLoadedBudgets.couple
+      : ((localBudgets?.couple && localBudgets.couple > 0) ? localBudgets.couple : (activeVault?.monthlyBudget || 0));
 
     const loadedBudgets: BudgetsConfig = {
-      couple: Number(rawLoadedBudgets?.couple ?? localBudgets?.couple ?? 0),
+      couple: Number(coupleBudget),
       userBudgets: mergedUserBudgets,
       me: Number(resolvedMe),
       partner: Number(resolvedPartner),
@@ -775,6 +791,36 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast('Monthly budgets saved successfully', 'success');
   }, [partner, triggerSyncFlash, pushToCloud, showToast]);
 
+  const updateBankBalance = useCallback((userId: string, initialBalance: number) => {
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, bankBalances: {} };
+    const updatedBankBalances = {
+      ...(activeBudgets.bankBalances || {}),
+      [userId]: Math.max(0, initialBalance),
+    };
+    const safeBudgets: BudgetsConfig = {
+      ...activeBudgets,
+      bankBalances: updatedBankBalances,
+    };
+    setBudgets(safeBudgets);
+    budgetsRef.current = safeBudgets;
+    CloudStore.saveBudgets(safeBudgets);
+
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (activeVault) {
+      const updatedVault: CoupleVault = {
+        ...activeVault,
+        bankBalances: updatedBankBalances,
+      };
+      setVault(updatedVault);
+      vaultRef.current = updatedVault;
+      CloudStore.saveVault(updatedVault);
+    }
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ budgets: safeBudgets });
+    showToast('Bank balance updated successfully', 'success');
+  }, [triggerSyncFlash, pushToCloud, showToast]);
+
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
     if (!currentUser) return;
@@ -982,42 +1028,70 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!currentUser) return;
     const existingGoal = (goalsRef.current || []).find(goal => goal.id === goalId);
     if (!existingGoal) return;
+    const newCurrentAmount = existingGoal.currentAmount + amount;
+    const wasCompleted = existingGoal.currentAmount >= existingGoal.targetAmount && existingGoal.targetAmount > 0;
+    const isNowCompleted = newCurrentAmount >= existingGoal.targetAmount && existingGoal.targetAmount > 0;
+
+    const newContribution: GoalContribution = {
+      id: createRecordId('c'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      amount,
+      date: new Date().toISOString().split('T')[0],
+      note: note || `Added by ${currentUser.name}`,
+    };
+
     const updatedGoals = (goalsRef.current || []).map(goal => {
       if (goal.id !== goalId) return goal;
       return {
         ...goal,
-        currentAmount: goal.currentAmount + amount,
-        contributions: [
-          { id: createRecordId('c'), userId: currentUser.id, userName: currentUser.name, amount, date: new Date().toISOString().split('T')[0], note: note || `Added by ${currentUser.name}` },
-          ...goal.contributions,
-        ],
+        currentAmount: newCurrentAmount,
+        isCompleted: isNowCompleted || goal.isCompleted,
+        completedDate: isNowCompleted && !goal.completedDate ? new Date().toISOString().split('T')[0] : goal.completedDate,
+        contributions: [newContribution, ...goal.contributions],
       };
     });
-    const transaction: Transaction = {
-      id: createRecordId('tx'),
-      title: `Goal Savings: ${existingGoal.title}`,
-      amount, type: 'expense',
-      categoryId: 'cat-investment', categoryName: 'Investment',
-      categoryColor: '#3B82F6', categoryIcon: 'TrendingUp',
-      paymentMethod: 'Bank Transfer',
-      date: new Date().toISOString().split('T')[0],
-      userId: currentUser.id, userName: currentUser.name,
-      userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
-      isShared: true, notes: note || 'Contribution towards couple goal',
-      createdAt: new Date().toISOString(),
-    };
-    pendingCreatedTxIdsRef.current.add(transaction.id);
-    const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
+
     setGoals(updatedGoals);
     goalsRef.current = updatedGoals;
     CloudStore.saveGoals(updatedGoals);
-    setTransactions(updatedTransactions);
-    transactionsRef.current = updatedTransactions;
-    CloudStore.saveTransactions(updatedTransactions);
+
+    // If goal just reached completion, automatically create a Goal-Based Bill
+    let updatedBills = billsRef.current || [];
+    const billAlreadyExists = updatedBills.some(b => b.goalId === goalId);
+    if (isNowCompleted && !wasCompleted && !billAlreadyExists) {
+      const goalBill: BillItem = {
+        id: createRecordId('bill'),
+        title: `${existingGoal.title} (Goal Completed)`,
+        amount: existingGoal.targetAmount,
+        dueDate: existingGoal.targetDate || new Date().toISOString().split('T')[0],
+        categoryName: 'Goal',
+        categoryColor: existingGoal.color || '#10B981',
+        recurring: 'none',
+        splitType: existingGoal.isShared ? 'equal' : 'personal',
+        isPaid: false,
+        payerId: existingGoal.assignedUserId || currentUser.id,
+        payerName: existingGoal.assignedUserName || currentUser.name,
+        isGoalBased: true,
+        goalId: existingGoal.id,
+        goalTitle: existingGoal.title,
+        notes: `Goal-based bill created upon completing goal: ${existingGoal.title}`,
+      };
+      pendingCreatedBillIdsRef.current.add(goalBill.id);
+      updatedBills = [goalBill, ...updatedBills];
+      setBills(updatedBills);
+      billsRef.current = updatedBills;
+      CloudStore.saveBills(updatedBills);
+    }
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ goals: updatedGoals, transactions: updatedTransactions });
-    showToast('Goal contribution recorded', 'success');
+    void pushToCloud({ goals: updatedGoals, bills: updatedBills });
+    if (isNowCompleted && !wasCompleted) {
+      showToast('Goal achieved! 🎉 A goal-based bill has been created under Bills.', 'success');
+    } else {
+      showToast('Money allocated to goal from savings', 'success');
+    }
   };
 
   const deleteGoal = (id: string) => {
@@ -1326,8 +1400,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const markBillAsPaid = (billId: string, paidByUserId?: string, paidByUserName?: string) => {
     if (!currentUser) return;
     // Payer is always currentUser when marked as paid from this device
-    const payerId = currentUser.id;
-    const payerName = currentUser.name;
+    const payerId = paidByUserId || currentUser.id;
+    const payerName = paidByUserName || currentUser.name;
     let paidBill: BillItem | undefined;
     const updatedBills = (billsRef.current || []).map(b => {
       if (b.id !== billId) return b;
@@ -1343,15 +1417,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       return paidBill;
     });
     if (!paidBill) return;
+
+    // Create expense transaction for the bill (deducted as real expense)
     const transaction: Transaction = {
       id: createRecordId('tx'),
-      title: `Bill Paid: ${paidBill.title}`,
+      title: paidBill.isGoalBased ? `Goal Expense: ${paidBill.title}` : `Bill Paid: ${paidBill.title}`,
       amount: paidBill.amount,
       type: 'expense',
-      categoryId: 'cat-utilities',
-      categoryName: paidBill.categoryName || 'Utilities',
+      categoryId: paidBill.isGoalBased ? 'cat-investment' : 'cat-utilities',
+      categoryName: paidBill.isGoalBased ? 'Goal Expense' : (paidBill.categoryName || 'Utilities'),
       categoryColor: paidBill.categoryColor || '#F97316',
-      categoryIcon: 'Zap',
+      categoryIcon: paidBill.isGoalBased ? 'Target' : 'Zap',
       paymentMethod: 'UPI / Pix',
       date: new Date().toISOString().split('T')[0],
       userId: payerId,
@@ -1360,11 +1436,44 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? ((currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined)
         : ((partner?.avatarUrl && !partner.avatarUrl.startsWith('data:')) ? partner.avatarUrl : undefined),
       isShared: true,
-      notes: `Bill payment for ${paidBill.title}`,
+      notes: paidBill.isGoalBased ? `Goal spending for ${paidBill.goalTitle || paidBill.title}` : `Bill payment for ${paidBill.title}`,
       createdAt: new Date().toISOString(),
+      isGoalExpense: Boolean(paidBill.isGoalBased),
+      goalId: paidBill.goalId,
+      goalTitle: paidBill.goalTitle,
     };
     pendingCreatedTxIdsRef.current.add(transaction.id);
     const updatedTransactions = sortTransactionsDesc([transaction, ...(transactionsRef.current || [])]);
+
+    // If this bill is goal-based, update the corresponding goal!
+    let updatedGoals = goalsRef.current || [];
+    if (paidBill.isGoalBased && paidBill.goalId) {
+      updatedGoals = updatedGoals.map(g => {
+        if (g.id !== paidBill?.goalId) return g;
+        const newSpent = (g.spentAmount || 0) + paidBill!.amount;
+        return {
+          ...g,
+          spentAmount: newSpent,
+          billId: paidBill!.id,
+          isCompleted: true,
+          contributions: [
+            {
+              id: createRecordId('c'),
+              userId: payerId,
+              userName: payerName,
+              amount: paidBill!.amount,
+              date: new Date().toISOString().split('T')[0],
+              note: `Bill paid: ${paidBill!.title} (Goal expense paid)`,
+            },
+            ...g.contributions,
+          ],
+        };
+      });
+      setGoals(updatedGoals);
+      goalsRef.current = updatedGoals;
+      CloudStore.saveGoals(updatedGoals);
+    }
+
     setBills(updatedBills);
     billsRef.current = updatedBills;
     CloudStore.saveBills(updatedBills);
@@ -1373,7 +1482,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions, goals: updatedGoals });
     showToast(`Bill marked as paid by ${payerName}`, 'success');
   };
 
@@ -1438,6 +1547,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         toast, showToast, dismissToast,
         selectedMonth, setSelectedMonth, goToPreviousMonth, goToNextMonth,
         budgets, updateBudgets,
+        bankBalances: budgets.bankBalances || vault?.bankBalances || {},
+        updateBankBalance,
         completeOnboarding,
         signOut: handleSignOut,
         setActiveTab, setViewMode, setCurrency,

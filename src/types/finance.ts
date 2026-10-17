@@ -20,6 +20,7 @@ export interface CoupleVault {
   monthlyBudget: number;
   myBudget?: number;
   partnerBudget?: number;
+  bankBalances?: Record<string, number>;
   createdAt: string;
 }
 
@@ -28,6 +29,7 @@ export interface BudgetsConfig {
   me?: number;
   partner?: number;
   userBudgets?: Record<string, number>;
+  bankBalances?: Record<string, number>;
 }
 
 export interface Category {
@@ -80,6 +82,9 @@ export interface Transaction {
   flaggedByUserName?: string;
   flaggedAt?: string;
   comments?: TransactionComment[];
+  isGoalExpense?: boolean;
+  goalId?: string;
+  goalTitle?: string;
 }
 
 export interface GoalContribution {
@@ -143,6 +148,10 @@ export interface FinanceGoal {
   flaggedAt?: string;
   comments?: GoalComment[];
   pendingChange?: GoalChangeRequest | null;
+  spentAmount?: number;
+  isCompleted?: boolean;
+  completedDate?: string;
+  billId?: string;
 }
 
 export interface StockInvestment {
@@ -181,4 +190,7 @@ export interface BillItem {
   isSettled?: boolean;
   settledDate?: string;
   notes?: string;
+  isGoalBased?: boolean;
+  goalId?: string;
+  goalTitle?: string;
 }
