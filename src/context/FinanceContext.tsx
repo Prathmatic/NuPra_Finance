@@ -14,6 +14,7 @@ import {
   Category, 
   CurrencyCode,
   BudgetsConfig,
+  MonthlyBudgetRecord,
   TransactionComment
 } from '../types/finance';
 import { CloudStore } from '../services/cloudSync';
@@ -523,12 +524,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     // 6. Currency
     const validCurrency = snapshot.currency || 'INR';
 
-    // 7. Budgets (Preserve each partner's userBudgets by specific user ID)
+    // 7. Budgets (Preserve each partner's userBudgets by specific user ID, and merge monthlyBudgets)
     const rawLoadedBudgets = snapshot.budgets || CloudStore.getBudgets();
     const localBudgets = budgetsRef.current || CloudStore.getBudgets();
     const mergedUserBudgets: Record<string, number> = {
       ...(localBudgets?.userBudgets || {}),
       ...(rawLoadedBudgets?.userBudgets || {}),
+    };
+    // Merge monthlyBudgets: remote wins for any month key it provides
+    const mergedMonthlyBudgets: Record<string, MonthlyBudgetRecord> = {
+      ...(localBudgets?.monthlyBudgets || {}),
+      ...(rawLoadedBudgets?.monthlyBudgets || {}),
     };
     const currentUserId = currentUserRef.current?.id;
     const activeVault = vaultRef.current || vault;
@@ -547,15 +553,24 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           : (rawLoadedBudgets?.partner || localBudgets?.partner || activeVault?.partnerBudget || 0))
       : 0;
 
+    // Couple budget: prefer remote's value if non-zero, else keep local
     const coupleBudget = (rawLoadedBudgets?.couple && rawLoadedBudgets.couple > 0)
       ? rawLoadedBudgets.couple
       : ((localBudgets?.couple && localBudgets.couple > 0) ? localBudgets.couple : (activeVault?.monthlyBudget || 0));
+
+    // Bank balances: merge remote + local, remote wins per user
+    const mergedBankBalances: Record<string, number> = {
+      ...(localBudgets?.bankBalances || {}),
+      ...(rawLoadedBudgets?.bankBalances || {}),
+    };
 
     const loadedBudgets: BudgetsConfig = {
       couple: Number(coupleBudget),
       userBudgets: mergedUserBudgets,
       me: Number(resolvedMe),
       partner: Number(resolvedPartner),
+      monthlyBudgets: mergedMonthlyBudgets,
+      bankBalances: mergedBankBalances,
     };
 
     // Update state & refs
@@ -1904,16 +1919,38 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteBill = (id: string) => {
+    const billToDelete = (billsRef.current || []).find(b => b.id === id);
     pendingCreatedBillIdsRef.current.delete(id);
     deletedBillIdsRef.current.add(id);
-    const updated = (billsRef.current || []).filter(b => b.id !== id);
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+    const updatedBills = (billsRef.current || []).filter(b => b.id !== id);
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
+
+    // Also remove associated paid-transaction(s) for this bill so money is refunded
+    let updatedTransactions = transactionsRef.current || [];
+    if (billToDelete) {
+      const billTitlePatterns = [
+        `Bill Paid: ${billToDelete.title}`,
+        `Goal Expense: ${billToDelete.title}`,
+      ];
+      // Remove transactions linked by goalId OR by matching title pattern
+      updatedTransactions = updatedTransactions.filter(t => {
+        if (billToDelete.goalId && t.goalId === billToDelete.goalId && t.isGoalExpense) return false;
+        if (billTitlePatterns.some(p => t.title === p)) return false;
+        return true;
+      });
+      if (updatedTransactions.length !== transactionsRef.current.length) {
+        setTransactions(updatedTransactions);
+        transactionsRef.current = updatedTransactions;
+        CloudStore.saveTransactions(updatedTransactions);
+      }
+    }
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
-    showToast('Bill removed', 'info');
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    showToast('Bill removed and associated expenses refunded', 'info');
   };
 
   return (

@@ -104,6 +104,10 @@ export const BudgetLimitStatsCard: React.FC<BudgetLimitStatsCardProps> = ({
       let partnerSpent = 0;
 
       transactions.filter(t => t.type === 'expense' && t.date.startsWith(month)).forEach(t => {
+        const isGoalContribution = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
+        const isGoalBillExpense = Boolean(t.isGoalExpense || t.title?.startsWith('Goal Expense:') || t.title?.includes('Goal Expense'));
+        if (isGoalContribution || isGoalBillExpense) return;
+
         if (t.userId === myId) {
           mySpent += t.amount;
         } else if (partnerId && t.userId === partnerId) {
@@ -184,6 +188,10 @@ export const BudgetLimitStatsCard: React.FC<BudgetLimitStatsCardProps> = ({
     transactions
       .filter(t => t.type === 'expense' && t.date.startsWith(selectedMonth))
       .forEach(t => {
+        const isGoalContribution = t.title?.startsWith('Goal Savings:') || t.title?.includes('Goal Savings');
+        const isGoalBillExpense = Boolean(t.isGoalExpense || t.title?.startsWith('Goal Expense:') || t.title?.includes('Goal Expense'));
+        if (isGoalContribution || isGoalBillExpense) return;
+
         const catName = t.categoryName || 'Other';
         if (!catMap[catName]) {
           const matched = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());

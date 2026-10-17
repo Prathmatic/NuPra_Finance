@@ -138,10 +138,18 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                   const checked = e.target.checked;
                   setIsGoalBased(checked);
                   if (checked && goals && goals.length > 0) {
-                    const firstGoal = goals[0];
-                    setSelectedGoalId(firstGoal.id);
-                    setTitle(firstGoal.title);
-                    setAmount(firstGoal.targetAmount.toString());
+                    // Filter to eligible goals: currentUser's or shared goals only
+                    const eligible = goals.filter(g =>
+                      g.isShared || !g.assignedUserId ||
+                      g.assignedUserId === currentUser?.id ||
+                      g.createdByUserId === currentUser?.id
+                    );
+                    const firstGoal = eligible[0];
+                    if (firstGoal) {
+                      setSelectedGoalId(firstGoal.id);
+                      setTitle(firstGoal.title);
+                      setAmount(firstGoal.targetAmount.toString());
+                    }
                   }
                 }}
                 className="w-4 h-4 rounded border-white/20 bg-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-emerald-500"
@@ -157,29 +165,39 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                 <label className="block text-[11px] font-semibold text-slate-300">
                   Select Associated Goal:
                 </label>
-                {(!goals || goals.length === 0) ? (
-                  <p className="text-xs text-amber-400">No goals found. Create a goal first.</p>
-                ) : (
-                  <select
-                    value={selectedGoalId}
-                    onChange={(e) => {
-                      const gId = e.target.value;
-                      setSelectedGoalId(gId);
-                      const g = goals.find(goal => goal.id === gId);
-                      if (g) {
-                        setTitle(g.title);
-                        setAmount(g.targetAmount.toString());
-                      }
-                    }}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-emerald-500"
-                  >
-                    {goals.map(g => (
-                      <option key={g.id} value={g.id} className="bg-slate-900 text-white">
-                        {g.title} ({formatCurrency(g.targetAmount, currency)} · {g.currentAmount >= g.targetAmount ? 'Completed' : `${Math.round((g.currentAmount / g.targetAmount) * 100)}%`})
-                      </option>
-                    ))}
-                  </select>
-                )}
+                {(() => {
+                  // Only show: goals assigned to currentUser OR shared/couple goals (NOT partner's personal goals)
+                  const eligibleGoals = (goals || []).filter(g =>
+                    g.isShared ||
+                    !g.assignedUserId ||
+                    g.assignedUserId === currentUser?.id ||
+                    g.createdByUserId === currentUser?.id
+                  );
+                  if (eligibleGoals.length === 0) {
+                    return <p className="text-xs text-amber-400">No eligible goals found. Create a personal or shared goal first.</p>;
+                  }
+                  return (
+                    <select
+                      value={selectedGoalId}
+                      onChange={(e) => {
+                        const gId = e.target.value;
+                        setSelectedGoalId(gId);
+                        const g = eligibleGoals.find(goal => goal.id === gId);
+                        if (g) {
+                          setTitle(g.title);
+                          setAmount(g.targetAmount.toString());
+                        }
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-emerald-500"
+                    >
+                      {eligibleGoals.map(g => (
+                        <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+                          {g.isShared ? '👥 ' : '👤 '}{g.title} ({formatCurrency(g.targetAmount, currency)} · {g.currentAmount >= g.targetAmount ? 'Completed ✓' : `${Math.round((g.currentAmount / g.targetAmount) * 100)}%`})
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
                 <p className="text-[10px] text-slate-400">
                   When this bill is paid, the amount is deducted as an expense and reflects directly in the goal as paid/spent.
                 </p>

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatMonthYear } from '../../utils/formatters';
 import { Transaction } from '../../types/finance';
-import { downloadStatementPdf, printStatementHtml, StatementData } from '../../utils/pdfGenerator';
+import { printStatementHtml, generateStatementPdfBlob, StatementData } from '../../utils/pdfGenerator';
 
 interface ExportStatementModalProps {
   isOpen: boolean;
@@ -271,7 +271,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     }
   };
 
-  // Direct PDF Download (with native Android Web Share API + fallback)
+  // Direct PDF Download (with native Android Web Share API + browser fallback + print fallback)
   const handleExportPDF = async () => {
     if (statementTransactions.length === 0) {
       showToast('No transactions found in this timeframe to export', 'info');
@@ -306,17 +306,49 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
         })),
       };
 
-      const success = await downloadStatementPdf(statementData, fileName);
-      if (success) {
-        showToast('PDF statement ready! 📄', 'success');
-        onClose();
-      } else {
-        showToast('Opening print view as fallback...', 'info');
-        handlePrintStatement();
+      // Try Web Share API first (works on modern Android for file sharing)
+      try {
+        const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+        if (nav && typeof nav.canShare === 'function' && typeof nav.share === 'function') {
+          const blob = generateStatementPdfBlob(statementData);
+          const file = new File([blob], fileName, { type: 'application/pdf' });
+          if (nav.canShare({ files: [file] })) {
+            await nav.share({ files: [file], title: fileName });
+            showToast('PDF statement shared successfully! 📄', 'success');
+            onClose();
+            return;
+          }
+        }
+      } catch (shareErr: any) {
+        if (shareErr?.name === 'AbortError') { setIsExporting(false); return; }
+        // Fall through to blob download
       }
+
+      // Try direct blob download (Desktop Chrome/Firefox/Edge)
+      try {
+        const blob = generateStatementPdfBlob(statementData);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', fileName);
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+        showToast('PDF downloaded! 📥 Check your Downloads folder.', 'success');
+        onClose();
+        return;
+      } catch (blobErr) {
+        console.warn('Blob download failed, falling back to print view:', blobErr);
+      }
+
+      // Universal fallback: HTML print window (user presses Print → Save as PDF)
+      showToast('Opening print view — use "Save as PDF" in print dialog 🖨️', 'info');
+      handlePrintStatement();
     } catch (err) {
       console.error('PDF export error:', err);
-      showToast('Direct download failed, opening print view...', 'info');
+      showToast('Opening print view — use "Save as PDF" in your browser 🖨️', 'info');
       handlePrintStatement();
     } finally {
       setIsExporting(false);

@@ -9,7 +9,8 @@ import {
   ArrowUpRight, 
   ArrowDownRight,
   ShieldCheck,
-  HelpCircle
+  HelpCircle,
+  Lock
 } from 'lucide-react';
 import { UserProfile, Transaction, CurrencyCode } from '../../types/finance';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
@@ -92,7 +93,9 @@ export const BankAccountsCard: React.FC<BankAccountsCardProps> = ({
   const targetIncome = editingUserId === currentUser?.id ? myIncome : partnerIncome;
   const targetExpense = editingUserId === currentUser?.id ? myExpense : partnerExpense;
 
+  // Only the owner of the account can edit their own initial balance
   const handleOpenEdit = (userId: string) => {
+    if (userId !== currentUser?.id) return; // guard: cannot edit partner's account
     setEditingUserId(userId);
     const currentVal = bankBalances[userId];
     setInputAmount(currentVal !== undefined && currentVal > 0 ? String(currentVal) : '');
@@ -230,13 +233,10 @@ export const BankAccountsCard: React.FC<BankAccountsCardProps> = ({
                     <p className="text-[10px] text-slate-400">Personal Bank</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleOpenEdit(partner.id)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] font-semibold text-slate-300 hover:text-white transition-all active:scale-95 border border-white/5"
-                >
-                  <Edit3 className="w-3 h-3 text-cyan-400" />
-                  <span>{partnerInitial > 0 ? 'Edit' : 'Set Initial'}</span>
-                </button>
+                <span className="flex items-center gap-1 px-2 py-1 rounded-xl bg-slate-800/60 text-[10px] font-semibold text-slate-500 border border-white/5 cursor-not-allowed" title="Only your partner can edit their own balance">
+                  <Lock className="w-3 h-3 text-slate-500" />
+                  <span>Set by {partner.name.split(' ')[0]}</span>
+                </span>
               </div>
 
               <div>
