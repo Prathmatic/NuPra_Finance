@@ -13,21 +13,27 @@ import { OnboardingFlow } from './components/auth/OnboardingFlow';
 import { AddTransactionModal } from './components/transactions/AddTransactionModal';
 import { AddGoalModal } from './components/goals/AddGoalModal';
 import { AddStockModal } from './components/stocks/AddStockModal';
-import { SplashScreen } from './components/common/SplashScreen';
+import { InteractiveSplash } from './components/layout/InteractiveSplash';
 import { Smartphone, Monitor } from 'lucide-react';
 
 const MainContent: React.FC = () => {
   const { activeTab, isOnboarded, completeOnboarding, currentUser, isAuthLoading, authError } = useFinance();
 
-  const [isSplashDone, setIsSplashDone] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [isAddGoalOpen, setIsAddGoalOpen] = useState(false);
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
   const [isMobileFrameMode, setIsMobileFrameMode] = useState(false);
 
-  if (!isSplashDone) {
-    return <SplashScreen onComplete={() => setIsSplashDone(true)} isReady={!isAuthLoading} duration={2400} />;
+  if (showSplash) {
+    return (
+      <InteractiveSplash
+        isAuthLoading={isAuthLoading}
+        minDurationMs={2400}
+        onFinish={() => setShowSplash(false)}
+      />
+    );
   }
 
   if (!isOnboarded) {
@@ -92,7 +98,11 @@ const MainContent: React.FC = () => {
             : 'max-w-2xl bg-[#0b0f19]'
         }`}
       >
-        <AppHeader onOpenProfile={() => setIsAuthOpen(true)} onOpenAddModal={() => setIsAddTxOpen(true)} />
+        <AppHeader 
+          onOpenProfile={() => setIsAuthOpen(true)} 
+          onOpenAddModal={() => setIsAddTxOpen(true)} 
+          onReplaySplash={() => setShowSplash(true)} 
+        />
 
         <main 
           className="flex-1 p-4 overflow-y-auto no-scrollbar"

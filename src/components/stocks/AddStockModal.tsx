@@ -19,7 +19,7 @@ const STOCK_PRESETS = [
 ];
 
 export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, partner, currency, addStock } = useFinance();
+  const { currentUser, partner, currency, addStock, convertInputToBase, exchangeRate } = useFinance();
   const [assetName, setAssetName] = useState('');
   const [ticker, setTicker] = useState('');
   const [investedAmount, setInvestedAmount] = useState('');
@@ -35,11 +35,12 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
     if (!assetName.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
     const monthYear = date.slice(0, 7); // "YYYY-MM"
+    const baseInvested = convertInputToBase(amountNum);
 
     addStock({
       assetName: assetName.trim(),
       ticker: ticker.trim().toUpperCase() || undefined,
-      investedAmount: amountNum,
+      investedAmount: baseInvested,
       shares: shares ? parseFloat(shares) : undefined,
       monthYear,
       date,
@@ -152,6 +153,11 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({ isOpen, onClose })
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-base font-bold focus:outline-none focus:border-indigo-500"
               />
             </div>
+            {currency === 'INR' && parseFloat(investedAmount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300">
+                ≈ €{Math.round(parseFloat(investedAmount) / exchangeRate)} EUR base capital
+              </p>
+            )}
           </div>
 
           {/* Who Made This Investment (Logged as currentUser) */}

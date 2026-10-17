@@ -19,7 +19,7 @@ const GOAL_ICONS = [
 ];
 
 export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, partner, currency, addGoal } = useFinance();
+  const { currentUser, partner, currency, addGoal, convertInputToBase, exchangeRate } = useFinance();
   const [title, setTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [targetDate, setTargetDate] = useState('2027-01-01');
@@ -49,9 +49,11 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
       isShared = true;
     }
 
+    const baseTarget = convertInputToBase(amountNum);
+
     addGoal({
       title: title.trim(),
-      targetAmount: amountNum,
+      targetAmount: baseTarget,
       targetDate,
       color,
       icon,
@@ -159,6 +161,11 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({ isOpen, onClose }) =
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-base font-bold focus:outline-none focus:border-rose-500"
               />
             </div>
+            {currency === 'INR' && parseFloat(targetAmount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300">
+                ≈ €{Math.round(parseFloat(targetAmount) / exchangeRate)} EUR base target
+              </p>
+            )}
           </div>
 
           <div>

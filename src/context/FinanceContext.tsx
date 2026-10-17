@@ -29,6 +29,19 @@ import {
 import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { Toast, ToastMessage } from '../components/common/Toast';
+import { calculateSplitwiseBalance, getBillSplitInfo } from '../utils/splitwise';
+import { 
+  ExchangeRateData, 
+  getSavedExchangeRate, 
+  fetchLiveExchangeRate, 
+  setCustomRateOverride, 
+  clearCustomRateOverride 
+} from '../services/exchangeRateService';
+import { 
+  setGlobalExchangeRate, 
+  convertEurToInr, 
+  convertInrToEur 
+} from '../utils/formatters';
 
 interface FinanceContextType {
   currentUser: UserProfile | null;
@@ -61,7 +74,8 @@ interface FinanceContextType {
 
   // Budgets (default 0)
   budgets: BudgetsConfig;
-  updateBudgets: (newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => void;
+  updateBudgets: (newBudgets: Partial<BudgetsConfig> & { myBudget?: number; month?: string; isDefault?: boolean }) => void;
+  getBudgetForMonth: (monthKey: string) => { coupleLimit: number; myLimit: number; partnerLimit: number; isCustomMonth: boolean };
   bankBalances: Record<string, number>;
   updateBankBalance: (userId: string, initialBalance: number) => void;
 
@@ -108,11 +122,21 @@ interface FinanceContextType {
   addBill: (bill: Omit<BillItem, 'id' | 'isPaid'> & { isPaid?: boolean }) => void;
   markBillAsPaid: (billId: string, paidByUserId?: string, paidByUserName?: string) => void;
   deleteBill: (id: string) => void;
-  settleBill: (billId: string) => void;
+  settleBill: (billId: string, recordTx?: boolean) => void;
   settleAllBills: (recordTx?: boolean) => void;
 
   // Sync
   refreshSync: () => Promise<void>;
+
+  // Live Exchange Rate (EUR -> INR)
+  exchangeRate: number;
+  exchangeRateData: ExchangeRateData;
+  isRateLoading: boolean;
+  refreshExchangeRate: (force?: boolean) => Promise<void>;
+  setCustomExchangeRate: (rate: number) => void;
+  clearCustomExchangeRate: () => void;
+  convertToDisplay: (amountInEur: number) => number;
+  convertInputToBase: (amountInInput: number) => number;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -141,6 +165,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [bills, setBills] = useState<BillItem[]>(() => CloudStore.getBills());
   const [currency, setCurrencyState] = useState<CurrencyCode>(() => CloudStore.getCurrency());
   const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
+
+  // Exchange rate state (EUR -> INR) with synchronous global sync
+  const [exchangeRateData, setExchangeRateData] = useState<ExchangeRateData>(() => {
+    const saved = getSavedExchangeRate();
+    setGlobalExchangeRate(saved.rate);
+    return saved;
+  });
+  const [isRateLoading, setIsRateLoading] = useState<boolean>(false);
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [viewMode, setViewMode] = useState<'both' | 'me' | 'partner'>('both');
@@ -197,6 +229,36 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Global Toast notification state
   const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  // Sync live ECB exchange rate on mount and window focus
+  useEffect(() => {
+    let isMounted = true;
+    const loadRates = async (force = false) => {
+      try {
+        setIsRateLoading(true);
+        const data = await fetchLiveExchangeRate(force);
+        if (isMounted) {
+          setExchangeRateData(data);
+          setGlobalExchangeRate(data.rate);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch live exchange rate:', err);
+      } finally {
+        if (isMounted) setIsRateLoading(false);
+      }
+    };
+
+    loadRates(false);
+
+    const handleFocus = () => {
+      loadRates(false);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ id: `${Date.now()}-${Math.random()}`, message, type });
@@ -738,28 +800,151 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   };
 
-  /* ─── Budgets ─────────────────────────────────────────────────────────── */
-  const updateBudgets = useCallback((newBudgets: Partial<BudgetsConfig> & { myBudget?: number }) => {
-    if (!currentUserRef.current) return;
-    const currentUserId = currentUserRef.current.id;
-    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {} };
-    const updatedUserBudgets: Record<string, number> = { ...(activeBudgets.userBudgets || {}) };
-
-    // Update currentUser's personal budget if provided
-    if (newBudgets.myBudget !== undefined) {
-      updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
-    } else if (newBudgets.me !== undefined) {
-      updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
+  /* ─── Exchange Rate Handlers ─────────────────────────────────────────── */
+  const refreshExchangeRate = useCallback(async (force = true) => {
+    try {
+      setIsRateLoading(true);
+      const data = await fetchLiveExchangeRate(force);
+      setExchangeRateData(data);
+      setGlobalExchangeRate(data.rate);
+      showToast(`Exchange rate updated: 1 € = ₹${data.rate.toFixed(2)} (${data.source})`, 'success');
+    } catch {
+      showToast('Could not refresh live rate, using latest cached rate.', 'info');
+    } finally {
+      setIsRateLoading(false);
     }
+  }, [showToast]);
 
-    // Couple budget is joint: either partner can set or modify it!
-    const newCouple = newBudgets.couple !== undefined
-      ? Math.max(0, newBudgets.couple)
-      : (activeBudgets.couple || 0);
+  const setCustomExchangeRate = useCallback((customRate: number) => {
+    try {
+      const updated = setCustomRateOverride(customRate);
+      setExchangeRateData(updated);
+      setGlobalExchangeRate(updated.rate);
+      showToast(`Custom exchange rate set: 1 € = ₹${updated.rate.toFixed(2)}`, 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Invalid rate value', 'error');
+    }
+  }, [showToast]);
 
-    // Partner's budget is strictly preserved (read-only for current user)
+  const clearCustomExchangeRate = useCallback(() => {
+    const updated = clearCustomRateOverride();
+    setExchangeRateData(updated);
+    setGlobalExchangeRate(updated.rate);
+    showToast(`Restored ECB live rate: 1 € = ₹${updated.rate.toFixed(2)}`, 'success');
+  }, [showToast]);
+
+  const convertToDisplay = useCallback((amountInEur: number): number => {
+    if (currency === 'INR') {
+      return convertEurToInr(amountInEur, exchangeRateData.rate);
+    }
+    return amountInEur;
+  }, [currency, exchangeRateData.rate]);
+
+  const convertInputToBase = useCallback((amountInInput: number): number => {
+    if (currency === 'INR') {
+      return convertInrToEur(amountInInput, exchangeRateData.rate);
+    }
+    return amountInInput;
+  }, [currency, exchangeRateData.rate]);
+
+  /* ─── Budgets ─────────────────────────────────────────────────────────── */
+  const getBudgetForMonth = useCallback((monthKey: string) => {
+    const currentUserId = currentUserRef.current?.id;
     const activeVaultForPartner = vaultRef.current || vault;
     const partnerId = partner?.id || (activeVaultForPartner?.partner1?.id === currentUserId ? activeVaultForPartner?.partner2?.id : activeVaultForPartner?.partner1?.id);
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, monthlyBudgets: {} };
+
+    const monthConfig = activeBudgets.monthlyBudgets?.[monthKey];
+    if (monthConfig) {
+      const coupleLimit = Number(monthConfig.couple ?? activeBudgets.couple ?? 0);
+      const myLimit = Number(
+        (currentUserId ? monthConfig.userBudgets?.[currentUserId] : undefined)
+        ?? monthConfig.me
+        ?? (currentUserId ? activeBudgets.userBudgets?.[currentUserId] : undefined)
+        ?? activeBudgets.me
+        ?? 0
+      );
+      const partnerLimit = Number(
+        (partnerId ? monthConfig.userBudgets?.[partnerId] : undefined)
+        ?? monthConfig.partner
+        ?? (partnerId ? activeBudgets.userBudgets?.[partnerId] : undefined)
+        ?? activeBudgets.partner
+        ?? 0
+      );
+      return { coupleLimit, myLimit, partnerLimit, isCustomMonth: true };
+    }
+
+    const coupleLimit = Number(activeBudgets.couple || 0);
+    const myLimit = Number(
+      (currentUserId ? activeBudgets.userBudgets?.[currentUserId] : undefined)
+      ?? activeBudgets.me
+      ?? 0
+    );
+    const partnerLimit = Number(
+      (partnerId ? activeBudgets.userBudgets?.[partnerId] : undefined)
+      ?? activeBudgets.partner
+      ?? 0
+    );
+    return { coupleLimit, myLimit, partnerLimit, isCustomMonth: false };
+  }, [vault, partner]);
+
+  const updateBudgets = useCallback((newBudgets: Partial<BudgetsConfig> & { myBudget?: number; month?: string; isDefault?: boolean }) => {
+    if (!currentUserRef.current) return;
+    const currentUserId = currentUserRef.current.id;
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, monthlyBudgets: {} };
+    const updatedUserBudgets: Record<string, number> = { ...(activeBudgets.userBudgets || {}) };
+    const updatedMonthlyBudgets = { ...(activeBudgets.monthlyBudgets || {}) };
+
+    const activeVaultForPartner = vaultRef.current || vault;
+    const partnerId = partner?.id || (activeVaultForPartner?.partner1?.id === currentUserId ? activeVaultForPartner?.partner2?.id : activeVaultForPartner?.partner1?.id);
+
+    // If month is provided, update that month's specific budget
+    if (newBudgets.month) {
+      const targetMonth = newBudgets.month;
+      const existingMonth = updatedMonthlyBudgets[targetMonth] || {
+        couple: activeBudgets.couple || 0,
+        userBudgets: { ...(activeBudgets.userBudgets || {}) },
+        me: activeBudgets.me || 0,
+        partner: activeBudgets.partner || 0,
+      };
+
+      const monthUserBudgets: Record<string, number> = { ...(existingMonth.userBudgets || {}) };
+
+      if (newBudgets.myBudget !== undefined) {
+        monthUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
+      } else if (newBudgets.me !== undefined) {
+        monthUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
+      }
+
+      const monthCouple = newBudgets.couple !== undefined
+        ? Math.max(0, newBudgets.couple)
+        : (existingMonth.couple || 0);
+
+      const monthMyAmount = monthUserBudgets[currentUserId] || 0;
+      const monthPartnerAmount = partnerId ? (monthUserBudgets[partnerId] || 0) : (existingMonth.partner || 0);
+
+      updatedMonthlyBudgets[targetMonth] = {
+        couple: monthCouple,
+        userBudgets: monthUserBudgets,
+        me: monthMyAmount,
+        partner: monthPartnerAmount,
+      };
+    }
+
+    // If no month is specified OR isDefault is true, update the base/default budget
+    let newCouple = activeBudgets.couple || 0;
+    if (!newBudgets.month || newBudgets.isDefault) {
+      if (newBudgets.myBudget !== undefined) {
+        updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.myBudget);
+      } else if (newBudgets.me !== undefined) {
+        updatedUserBudgets[currentUserId] = Math.max(0, newBudgets.me);
+      }
+
+      newCouple = newBudgets.couple !== undefined
+        ? Math.max(0, newBudgets.couple)
+        : (activeBudgets.couple || 0);
+    }
+
     const myAmount = updatedUserBudgets[currentUserId] || 0;
     const partnerAmount = partnerId ? (updatedUserBudgets[partnerId] || 0) : (activeBudgets.partner || 0);
 
@@ -768,6 +953,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       userBudgets: updatedUserBudgets,
       me: myAmount,
       partner: partnerAmount,
+      monthlyBudgets: updatedMonthlyBudgets,
     };
 
     setBudgets(safeBudgets);
@@ -788,8 +974,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ budgets: safeBudgets });
-    showToast('Monthly budgets saved successfully', 'success');
-  }, [partner, triggerSyncFlash, pushToCloud, showToast]);
+    
+    if (newBudgets.month) {
+      showToast(`Budget for ${newBudgets.month} saved successfully`, 'success');
+    } else {
+      showToast('Monthly budgets saved successfully', 'success');
+    }
+  }, [partner, vault, triggerSyncFlash, pushToCloud, showToast]);
 
   const updateBankBalance = useCallback((userId: string, initialBalance: number) => {
     const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, bankBalances: {} };
@@ -827,12 +1018,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     try {
       const now = new Date().toISOString();
       const newTxDate = tx.date || now.split('T')[0];
-      // Always enforce currentUser as creator/payer
+      const txUserId = tx.userId || currentUser.id;
+      const txUserName = tx.userName || (txUserId === currentUser.id ? currentUser.name : partner?.name || 'Partner');
+      const txUserAvatar = tx.userAvatar !== undefined ? tx.userAvatar : (txUserId === currentUser.id ? currentUser.avatarUrl : partner?.avatarUrl);
       const newTx: Transaction = { 
         ...tx, 
-        userId: currentUser.id,
-        userName: currentUser.name,
-        userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+        userId: txUserId,
+        userName: txUserName,
+        userAvatar: (txUserAvatar && !txUserAvatar.startsWith('data:')) ? txUserAvatar : undefined,
         id: createRecordId('tx'), 
         date: newTxDate,
         createdAt: now 
@@ -1386,14 +1579,48 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addBill = (bill: Omit<BillItem, 'id' | 'isPaid'> & { isPaid?: boolean }) => {
     const { isPaid = false, ...rest } = bill;
     const newBill: BillItem = { ...rest, isPaid, id: createRecordId('bill') };
-    const updated = [newBill, ...(billsRef.current || [])];
+    const updatedBills = [newBill, ...(billsRef.current || [])];
     pendingCreatedBillIdsRef.current.add(newBill.id);
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+
+    let updatedTransactions = transactionsRef.current || [];
+    if (isPaid && newBill.amount > 0) {
+      const payerId = newBill.paidByUserId || newBill.payerId || currentUser?.id;
+      const payerName = newBill.paidByUserName || newBill.payerName || (payerId === currentUser?.id ? currentUser?.name : partner?.name) || 'You';
+      if (payerId) {
+        const transaction: Transaction = {
+          id: createRecordId('tx'),
+          title: `Bill Paid: ${newBill.title}`,
+          amount: newBill.amount,
+          type: 'expense',
+          categoryId: 'cat-utilities',
+          categoryName: newBill.categoryName || 'Utilities',
+          categoryColor: newBill.categoryColor || '#F97316',
+          categoryIcon: 'Zap',
+          paymentMethod: 'UPI / Pix',
+          date: newBill.paidDate || new Date().toISOString().split('T')[0],
+          userId: payerId,
+          userName: payerName,
+          userAvatar: payerId === currentUser?.id
+            ? ((currentUser?.avatarUrl && !currentUser?.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined)
+            : ((partner?.avatarUrl && !partner?.avatarUrl.startsWith('data:')) ? partner.avatarUrl : undefined),
+          isShared: true,
+          notes: `Bill payment for ${newBill.title}`,
+          createdAt: new Date().toISOString(),
+        };
+        pendingCreatedTxIdsRef.current.add(transaction.id);
+        updatedTransactions = sortTransactionsDesc([transaction, ...updatedTransactions]);
+        setTransactions(updatedTransactions);
+        transactionsRef.current = updatedTransactions;
+        CloudStore.saveTransactions(updatedTransactions);
+      }
+    }
+
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
     showToast('Bill added successfully', 'success');
   };
 
@@ -1486,40 +1713,194 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast(`Bill marked as paid by ${payerName}`, 'success');
   };
 
-  const settleBill = (billId: string) => {
-    const updated = (billsRef.current || []).map(b => {
+  const settleBill = (billId: string, recordTx: boolean = true) => {
+    if (!currentUser) return;
+    const nowIso = new Date().toISOString().split('T')[0];
+    const now = new Date().toISOString();
+
+    const targetBill = (billsRef.current || []).find(b => b.id === billId);
+    if (!targetBill) return;
+
+    const updatedBills = (billsRef.current || []).map(b => {
       if (b.id === billId) {
         return {
           ...b,
           isSettled: true,
-          settledDate: new Date().toISOString().split('T')[0],
+          settledDate: nowIso,
         };
       }
       return b;
     });
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+
+    let updatedTransactions = transactionsRef.current || [];
+    let payerName = 'Payer';
+    let receiverName = 'Receiver';
+    let settledAmount = 0;
+
+    if (recordTx && partner) {
+      const splitInfo = getBillSplitInfo(targetBill, currentUser.id, partner.id, partner.name);
+      if (splitInfo.amountOwed > 0) {
+        settledAmount = splitInfo.amountOwed;
+        const partnerOwesMe = splitInfo.status === 'partner_owes_you';
+        const payer = partnerOwesMe ? partner : currentUser;
+        const receiver = partnerOwesMe ? currentUser : partner;
+        payerName = payer.name;
+        receiverName = receiver.name;
+
+        // 1. Deduct from payer's account (Expense)
+        const payerExpenseTx: Transaction = {
+          id: createRecordId('tx'),
+          title: `Settlement: Paid to ${receiver.name} (${targetBill.title})`,
+          amount: settledAmount,
+          type: 'expense',
+          categoryId: 'cat-settlement',
+          categoryName: 'Bill Settlement',
+          categoryColor: '#10B981',
+          categoryIcon: 'ArrowRightLeft',
+          paymentMethod: 'UPI / Pix',
+          date: nowIso,
+          userId: payer.id,
+          userName: payer.name,
+          userAvatar: (payer.avatarUrl && !payer.avatarUrl.startsWith('data:')) ? payer.avatarUrl : undefined,
+          isShared: true,
+          notes: `Splitwise settlement payment for "${targetBill.title}" to ${receiver.name}`,
+          createdAt: now,
+        };
+
+        // 2. Add to receiver's account (Income)
+        const receiverIncomeTx: Transaction = {
+          id: createRecordId('tx'),
+          title: `Settlement: Received from ${payer.name} (${targetBill.title})`,
+          amount: settledAmount,
+          type: 'income',
+          categoryId: 'cat-settlement',
+          categoryName: 'Bill Settlement',
+          categoryColor: '#10B981',
+          categoryIcon: 'ArrowRightLeft',
+          paymentMethod: 'UPI / Pix',
+          date: nowIso,
+          userId: receiver.id,
+          userName: receiver.name,
+          userAvatar: (receiver.avatarUrl && !receiver.avatarUrl.startsWith('data:')) ? receiver.avatarUrl : undefined,
+          isShared: true,
+          notes: `Splitwise settlement received for "${targetBill.title}" from ${payer.name}`,
+          createdAt: now,
+        };
+
+        pendingCreatedTxIdsRef.current.add(payerExpenseTx.id);
+        pendingCreatedTxIdsRef.current.add(receiverIncomeTx.id);
+        updatedTransactions = sortTransactionsDesc([payerExpenseTx, receiverIncomeTx, ...updatedTransactions]);
+      }
+    }
+
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
+
+    if (updatedTransactions !== transactionsRef.current) {
+      setTransactions(updatedTransactions);
+      transactionsRef.current = updatedTransactions;
+      CloudStore.saveTransactions(updatedTransactions);
+    }
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
-    showToast('Debt marked as settled', 'success');
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+
+    if (settledAmount > 0) {
+      showToast(`Settled "${targetBill.title}": Deducted from ${payerName} & added to ${receiverName}`, 'success');
+    } else {
+      showToast('Debt marked as settled', 'success');
+    }
   };
 
   const settleAllBills = (recordTx: boolean = true) => {
+    if (!currentUser) return;
     const nowIso = new Date().toISOString().split('T')[0];
-    const updated = (billsRef.current || []).map(b => ({
-      ...b,
-      isSettled: true,
-      settledDate: nowIso,
-    }));
-    setBills(updated);
-    billsRef.current = updated;
-    CloudStore.saveBills(updated);
+    const now = new Date().toISOString();
+
+    const debtSummary = calculateSplitwiseBalance(billsRef.current || [], currentUser.id, partner?.id);
+    const absAmount = Math.abs(debtSummary.netAmount);
+
+    const updatedBills = (billsRef.current || []).map(b => {
+      if (debtSummary.unsettledBills.some(ub => ub.id === b.id) || (!b.isSettled && (b.paidByUserId || b.payerId))) {
+        return {
+          ...b,
+          isSettled: true,
+          settledDate: nowIso,
+        };
+      }
+      return b;
+    });
+
+    let updatedTransactions = transactionsRef.current || [];
+    let toastMsg = 'All debts settled up successfully! 🎉';
+
+    if (recordTx && absAmount > 0 && partner) {
+      const partnerOwesMe = debtSummary.netAmount > 0;
+      const payer = partnerOwesMe ? partner : currentUser;
+      const receiver = partnerOwesMe ? currentUser : partner;
+
+      // 1. Deduct from payer's account (Expense)
+      const payerExpenseTx: Transaction = {
+        id: createRecordId('tx'),
+        title: `Settlement: Paid to ${receiver.name}`,
+        amount: absAmount,
+        type: 'expense',
+        categoryId: 'cat-settlement',
+        categoryName: 'Bill Settlement',
+        categoryColor: '#10B981',
+        categoryIcon: 'ArrowRightLeft',
+        paymentMethod: 'UPI / Pix',
+        date: nowIso,
+        userId: payer.id,
+        userName: payer.name,
+        userAvatar: (payer.avatarUrl && !payer.avatarUrl.startsWith('data:')) ? payer.avatarUrl : undefined,
+        isShared: true,
+        notes: `Splitwise settlement payment to ${receiver.name} for ${debtSummary.unsettledBillsCount} bill(s)`,
+        createdAt: now,
+      };
+
+      // 2. Add to receiver's account (Income)
+      const receiverIncomeTx: Transaction = {
+        id: createRecordId('tx'),
+        title: `Settlement: Received from ${payer.name}`,
+        amount: absAmount,
+        type: 'income',
+        categoryId: 'cat-settlement',
+        categoryName: 'Bill Settlement',
+        categoryColor: '#10B981',
+        categoryIcon: 'ArrowRightLeft',
+        paymentMethod: 'UPI / Pix',
+        date: nowIso,
+        userId: receiver.id,
+        userName: receiver.name,
+        userAvatar: (receiver.avatarUrl && !receiver.avatarUrl.startsWith('data:')) ? receiver.avatarUrl : undefined,
+        isShared: true,
+        notes: `Splitwise settlement received from ${payer.name} for ${debtSummary.unsettledBillsCount} bill(s)`,
+        createdAt: now,
+      };
+
+      pendingCreatedTxIdsRef.current.add(payerExpenseTx.id);
+      pendingCreatedTxIdsRef.current.add(receiverIncomeTx.id);
+      updatedTransactions = sortTransactionsDesc([payerExpenseTx, receiverIncomeTx, ...updatedTransactions]);
+      toastMsg = `Settled up: Deducted from ${payer.name} & added to ${receiver.name} 🎉`;
+    }
+
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
+
+    if (updatedTransactions !== transactionsRef.current) {
+      setTransactions(updatedTransactions);
+      transactionsRef.current = updatedTransactions;
+      CloudStore.saveTransactions(updatedTransactions);
+    }
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updated });
-    showToast('All debts settled up successfully! 🎉', 'success');
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    showToast(toastMsg, 'success');
   };
 
   const deleteBill = (id: string) => {
@@ -1546,7 +1927,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         authError,
         toast, showToast, dismissToast,
         selectedMonth, setSelectedMonth, goToPreviousMonth, goToNextMonth,
-        budgets, updateBudgets,
+        budgets, updateBudgets, getBudgetForMonth,
         bankBalances: budgets.bankBalances || vault?.bankBalances || {},
         updateBankBalance,
         completeOnboarding,
@@ -1562,6 +1943,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addBill, markBillAsPaid, deleteBill,
         settleBill, settleAllBills,
         refreshSync: pullFromCloud,
+        exchangeRate: exchangeRateData.rate,
+        exchangeRateData,
+        isRateLoading,
+        refreshExchangeRate,
+        setCustomExchangeRate,
+        clearCustomExchangeRate,
+        convertToDisplay,
+        convertInputToBase,
       }}
     >
       <Toast toast={toast} onDismiss={dismissToast} />

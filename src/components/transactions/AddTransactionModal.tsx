@@ -34,7 +34,9 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
     partner, 
     categories, 
     currency, 
-    addTransaction 
+    addTransaction,
+    convertInputToBase,
+    exchangeRate,
   } = useFinance();
 
   const [type, setType] = useState<'expense' | 'income'>('expense');
@@ -88,9 +90,12 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
     // Additional Description is completely optional: defaults to selected category name
     const finalTitle = title.trim() || selectedCategory.name;
 
+    // Convert input amount to base EUR if currency is INR
+    const baseAmount = convertInputToBase(parsedAmount);
+
     addTransaction({
       title: finalTitle,
-      amount: parsedAmount,
+      amount: baseAmount,
       type,
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
@@ -214,6 +219,13 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({ isOpen
                 className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-slate-800/80 border border-white/15 text-2xl font-black text-white focus:outline-none focus:border-rose-500 transition-all placeholder:text-slate-600"
               />
             </div>
+
+            {currency === 'INR' && parseFloat(amount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300 font-medium flex items-center gap-1">
+                <span>≈ €{(parseFloat(amount) / exchangeRate).toFixed(2)} EUR</span>
+                <span className="text-slate-400 font-normal">(stored in base currency at 1 € = ₹{exchangeRate.toFixed(2)})</span>
+              </p>
+            )}
 
             {/* Quick Amount Chips */}
             <div className="flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar py-1">

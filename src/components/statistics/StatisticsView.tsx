@@ -11,9 +11,7 @@ import {
   Pie, 
   Cell, 
   Legend, 
-  CartesianGrid, 
-  AreaChart, 
-  Area 
+  CartesianGrid 
 } from 'recharts';
 import { 
   BarChart3, 
@@ -29,21 +27,35 @@ import {
 } from 'lucide-react';
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { GoalStatsCard } from '../goals/GoalStatsCard';
+import { CategoryExpenseBarCard } from './CategoryExpenseBarCard';
+import { BudgetLimitStatsCard } from './BudgetLimitStatsCard';
+import { BudgetSettingsModal } from '../dashboard/BudgetSettingsModal';
 
 export const StatisticsView: React.FC = () => {
   const { 
     transactions, 
+    categories,
     goals, 
     stocks, 
     currency, 
     currentUser, 
     partner,
     bankBalances,
-    selectedMonth 
+    budgets,
+    selectedMonth,
+    getBudgetForMonth,
+    exchangeRate
   } = useFinance();
   const [timeframe, setTimeframe] = useState<'monthly' | 'yearly'>('monthly');
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [budgetModalMonth, setBudgetModalMonth] = useState<string | undefined>(undefined);
 
   const currencySymbol = getCurrencySymbol(currency);
+
+  const formatYAxisTick = (v: number) => {
+    const scaled = currency === 'INR' ? Math.round(v * exchangeRate) : v;
+    return `${currencySymbol}${scaled >= 1000 ? `${(scaled / 1000).toFixed(0)}k` : scaled}`;
+  };
 
   // Available Net Savings for Goals plot breakdown
   const { mySavings, partnerSavings, totalSavingsTogether } = useMemo(() => {
@@ -467,7 +479,7 @@ export const StatisticsView: React.FC = () => {
             <BarChart data={activePeriodData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
               <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${v/1000}k` : v}`} />
+              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={formatYAxisTick} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
@@ -504,7 +516,7 @@ export const StatisticsView: React.FC = () => {
             <BarChart data={activePeriodData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
               <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${v/1000}k` : v}`} />
+              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={formatYAxisTick} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
@@ -518,7 +530,22 @@ export const StatisticsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. GOAL DEFICIT: HOW MUCH AMOUNT IS NEEDED MORE (User Key Requirement) */}
+      {/* 3. MONTHLY BUDGET LIMIT VS ACTUAL SPEND (INDIVIDUAL & COMBINED) */}
+      <BudgetLimitStatsCard
+        transactions={transactions}
+        categories={categories}
+        budgets={budgets}
+        getBudgetForMonth={getBudgetForMonth}
+        currency={currency}
+        currentUser={currentUser}
+        partner={partner}
+        onOpenBudgetModal={(monthKey) => {
+          setBudgetModalMonth(monthKey);
+          setIsBudgetModalOpen(true);
+        }}
+      />
+
+      {/* 4. GOAL DEFICIT: HOW MUCH AMOUNT IS NEEDED MORE (User Key Requirement) */}
       <div className="glass-card p-5 rounded-3xl border border-white/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -539,7 +566,7 @@ export const StatisticsView: React.FC = () => {
             <BarChart data={goalDeficitData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
               <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${v/1000}k` : v}`} />
+              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} tickFormatter={formatYAxisTick} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
                 formatter={(val: any) => [formatCurrency(Number(val), currency)]}
@@ -607,7 +634,16 @@ export const StatisticsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. CATEGORY SPENDING PIE CHART */}
+      {/* 5. INDIVIDUAL CATEGORY EXPENSE BREAKDOWN (BAR CHART) */}
+      <CategoryExpenseBarCard
+        transactions={transactions}
+        categories={categories}
+        currency={currency}
+        currentUser={currentUser}
+        partner={partner}
+      />
+
+      {/* 6. OVERALL CATEGORY DISTRIBUTION (PIE CHART) */}
       <div className="glass-card p-5 rounded-3xl border border-white/10 space-y-3">
         <div className="flex items-center gap-2">
           <div className="p-1.5 rounded-xl bg-pink-500/20 text-pink-400">
@@ -615,9 +651,9 @@ export const StatisticsView: React.FC = () => {
           </div>
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-white">
-              Category Expense Breakdown
+              Category Spending Share
             </h3>
-            <p className="text-[11px] text-slate-400">Where does your couple money go?</p>
+            <p className="text-[11px] text-slate-400">Macro proportion of couple expenses</p>
           </div>
         </div>
 
@@ -665,6 +701,13 @@ export const StatisticsView: React.FC = () => {
         mySavings={mySavings}
         partnerSavings={partnerSavings}
         totalSavingsTogether={totalSavingsTogether}
+      />
+
+      {/* Budget Limits Settings Modal */}
+      <BudgetSettingsModal
+        isOpen={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)}
+        initialMonth={budgetModalMonth}
       />
     </div>
   );

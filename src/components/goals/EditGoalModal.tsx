@@ -12,7 +12,7 @@ interface EditGoalModalProps {
 }
 
 export const EditGoalModal: React.FC<EditGoalModalProps> = ({ goal, isOpen, onClose }) => {
-  const { currentUser, partner, currency, updateGoal, requestGoalChange } = useFinance();
+  const { currentUser, partner, currency, updateGoal, requestGoalChange, convertInputToBase, exchangeRate } = useFinance();
 
   const [title, setTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
@@ -25,7 +25,10 @@ export const EditGoalModal: React.FC<EditGoalModalProps> = ({ goal, isOpen, onCl
   useEffect(() => {
     if (goal) {
       setTitle(goal.title);
-      setTargetAmount(String(goal.targetAmount));
+      const displayAmount = currency === 'INR'
+        ? Math.round(goal.targetAmount * exchangeRate).toString()
+        : String(goal.targetAmount);
+      setTargetAmount(displayAmount);
       setTargetDate(goal.targetDate);
       setColor(goal.color);
       setNotes(goal.notes || '');
@@ -37,7 +40,7 @@ export const EditGoalModal: React.FC<EditGoalModalProps> = ({ goal, isOpen, onCl
         setAssignedTo('partner');
       }
     }
-  }, [goal, currentUser]);
+  }, [goal, currentUser, currency, exchangeRate]);
 
   if (!isOpen || !goal) return null;
 
@@ -66,9 +69,11 @@ export const EditGoalModal: React.FC<EditGoalModalProps> = ({ goal, isOpen, onCl
       isShared = true;
     }
 
+    const baseTarget = convertInputToBase(amountNum);
+
     const proposedPayload = {
       title: title.trim(),
-      targetAmount: amountNum,
+      targetAmount: baseTarget,
       targetDate,
       color,
       notes: notes.trim() || undefined,
@@ -188,6 +193,11 @@ export const EditGoalModal: React.FC<EditGoalModalProps> = ({ goal, isOpen, onCl
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-base font-bold focus:outline-none focus:border-rose-500"
               />
             </div>
+            {currency === 'INR' && parseFloat(targetAmount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300">
+                ≈ €{Math.round(parseFloat(targetAmount) / exchangeRate)} EUR base target
+              </p>
+            )}
           </div>
 
           <div>

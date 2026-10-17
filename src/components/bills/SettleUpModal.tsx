@@ -18,7 +18,7 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
   netAmount,
   unsettledBills,
 }) => {
-  const { currentUser, partner, currency, settleAllBills, addTransaction } = useFinance();
+  const { currentUser, partner, currency, settleAllBills } = useFinance();
   const [recordTransaction, setRecordTransaction] = useState(true);
 
   if (!isOpen) return null;
@@ -27,31 +27,11 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
   const myName = currentUser?.name || 'You';
   const absAmount = Math.abs(netAmount);
   const partnerOwesMe = netAmount > 0;
+  const payerName = partnerOwesMe ? partnerName : myName;
+  const receiverName = partnerOwesMe ? myName : partnerName;
 
   const handleSettle = () => {
-    settleAllBills();
-
-    // If requested, record a settlement transaction
-    if (recordTransaction && absAmount > 0 && currentUser && partner) {
-      addTransaction({
-        title: partnerOwesMe 
-          ? `Settlement: Received from ${partnerName}` 
-          : `Settlement: Paid to ${partnerName}`,
-        amount: absAmount,
-        type: partnerOwesMe ? 'income' : 'expense',
-        categoryId: 'cat-utilities',
-        categoryName: 'Bill Settlement',
-        categoryColor: '#10B981',
-        categoryIcon: 'CheckCircle',
-        paymentMethod: 'UPI / Pix',
-        date: new Date().toISOString().split('T')[0],
-        userId: partnerOwesMe ? partner.id : currentUser.id,
-        userName: partnerOwesMe ? partner.name : currentUser.name,
-        userAvatar: partnerOwesMe ? partner.avatarUrl : currentUser.avatarUrl,
-        isShared: true,
-        notes: `Splitwise settlement for ${unsettledBills.length} bill(s)`,
-      });
-    }
+    settleAllBills(recordTransaction);
 
     confetti({
       particleCount: 100,
@@ -99,6 +79,20 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
             </p>
           </div>
 
+          {/* Account Balance Effect Cards */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center space-y-0.5">
+              <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider block">Payer (Deducted)</span>
+              <span className="text-white font-semibold truncate block">{payerName}</span>
+              <span className="text-rose-400 font-black text-sm">-{formatCurrency(absAmount, currency)}</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-0.5">
+              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Receiver (Added)</span>
+              <span className="text-white font-semibold truncate block">{receiverName}</span>
+              <span className="text-emerald-400 font-black text-sm">+{formatCurrency(absAmount, currency)}</span>
+            </div>
+          </div>
+
           {/* List of bills to be settled */}
           {unsettledBills.length > 0 && (
             <div className="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar">
@@ -136,7 +130,7 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
             <div className="text-xs">
               <span className="text-white font-semibold block">Record settlement transaction</span>
               <span className="text-slate-400 text-[11px]">
-                Adds this payment to your recent activity history so both partners can see it
+                Deducts {formatCurrency(absAmount, currency)} from {payerName}'s account and adds it to {receiverName}'s account
               </span>
             </div>
           </label>

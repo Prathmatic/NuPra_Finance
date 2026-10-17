@@ -81,6 +81,14 @@ export const DEFAULT_CATEGORIES: Category[] = [
     color: '#3B82F6', // Blue
     isDefault: true,
     type: 'both',
+  },
+  {
+    id: 'cat-settlement',
+    name: 'Bill Settlement',
+    icon: 'ArrowRightLeft',
+    color: '#10B981', // Emerald
+    isDefault: true,
+    type: 'both',
   }
 ];
 

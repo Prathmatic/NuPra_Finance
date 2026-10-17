@@ -6,9 +6,12 @@ import {
   MessageSquare, 
   Send, 
   CheckCircle, 
-  Lock 
+  Lock,
+  Target,
+  ChevronRight,
+  Info
 } from 'lucide-react';
-import { formatDate } from '../../utils/formatters';
+import { formatDate, formatCurrency, getGoalSavingsTitle } from '../../utils/formatters';
 
 interface TransactionActivityDrawerProps {
   transaction: Transaction;
@@ -19,7 +22,10 @@ export const TransactionActivityDrawer: React.FC<TransactionActivityDrawerProps>
     currentUser, 
     partner, 
     toggleFlagTransaction, 
-    addTransactionComment 
+    addTransactionComment,
+    setActiveTab,
+    currency,
+    goals
   } = useFinance();
 
   const [commentText, setCommentText] = useState('');
@@ -27,6 +33,16 @@ export const TransactionActivityDrawer: React.FC<TransactionActivityDrawerProps>
   const isMyTx = transaction.userId === currentUser?.id;
   const isFlagged = Boolean(transaction.isFlagged);
   const comments = transaction.comments || [];
+
+  const { goalName, isGoalSavings } = getGoalSavingsTitle(transaction);
+  const matchedGoal = isGoalSavings 
+    ? goals?.find(g => (transaction.goalId && g.id === transaction.goalId) || (goalName && g.title.toLowerCase() === goalName.toLowerCase()))
+    : undefined;
+
+  const resolvedGoalTitle = goalName || matchedGoal?.title || 'Couples Savings Goal';
+  const goalProgress = matchedGoal && matchedGoal.targetAmount > 0
+    ? Math.min(100, Math.round((matchedGoal.currentAmount / matchedGoal.targetAmount) * 100))
+    : null;
 
   const handleSendComment = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -48,6 +64,85 @@ export const TransactionActivityDrawer: React.FC<TransactionActivityDrawerProps>
 
   return (
     <div className="mt-3 pt-3 border-t border-white/10 space-y-3.5 animate-in fade-in duration-200">
+      {/* ─── Goal Savings Details & Description Card ──────────────────────── */}
+      {isGoalSavings && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-slate-900 to-teal-950/30 border border-emerald-500/30 space-y-2.5 shadow-lg">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <Target className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 block">
+                  Savings Goal Allocation
+                </span>
+                <p className="text-xs sm:text-sm font-bold text-white truncate">
+                  {resolvedGoalTitle}
+                </p>
+              </div>
+            </div>
+
+            {setActiveTab && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveTab('goals');
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 active:scale-95 shadow-sm"
+                title="Go to Goals view"
+              >
+                <span>View Goal</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Goal Progress if matched */}
+          {matchedGoal && (
+            <div className="space-y-1.5 bg-black/25 p-2.5 rounded-xl border border-white/5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">Total Saved for Goal</span>
+                <span className="text-emerald-400 font-bold">
+                  {formatCurrency(matchedGoal.currentAmount, currency)} / {formatCurrency(matchedGoal.targetAmount, currency)} ({goalProgress}%)
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div 
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                  style={{ width: `${goalProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Description & Contribution Details */}
+          <div className="text-xs bg-black/20 p-2.5 rounded-xl border border-white/5 space-y-1">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+              Contribution Description
+            </span>
+            <p className="text-slate-200 text-xs leading-relaxed">
+              {transaction.notes || `Contributed ${formatCurrency(transaction.amount, currency)} towards "${resolvedGoalTitle}".`}
+            </p>
+            <p className="text-[10px] text-slate-400 pt-0.5">
+              Saved by {transaction.userName} on {formatDate(transaction.date)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Notes Description for Regular Transactions ────────────────────── */}
+      {!isGoalSavings && transaction.notes && (
+        <div className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-2 text-xs">
+          <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+              Note
+            </span>
+            <p className="text-slate-200 text-xs leading-relaxed">{transaction.notes}</p>
+          </div>
+        </div>
+      )}
       {/* ─── Flag Status & Quick Action Bar ───────────────────────────────── */}
       <div className={`p-3 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
         isFlagged 

@@ -11,7 +11,7 @@ interface EditStockModalProps {
 }
 
 export const EditStockModal: React.FC<EditStockModalProps> = ({ stock, isOpen, onClose }) => {
-  const { currentUser, currency, updateStock } = useFinance();
+  const { currentUser, currency, updateStock, convertInputToBase, exchangeRate } = useFinance();
   const [assetName, setAssetName] = useState('');
   const [ticker, setTicker] = useState('');
   const [investedAmount, setInvestedAmount] = useState('');
@@ -23,12 +23,15 @@ export const EditStockModal: React.FC<EditStockModalProps> = ({ stock, isOpen, o
     if (stock) {
       setAssetName(stock.assetName);
       setTicker(stock.ticker || '');
-      setInvestedAmount(stock.investedAmount.toString());
+      const displayAmt = currency === 'INR'
+        ? Math.round(stock.investedAmount * exchangeRate).toString()
+        : stock.investedAmount.toString();
+      setInvestedAmount(displayAmt);
       setShares(stock.shares ? stock.shares.toString() : '');
       setDate(stock.date);
       setNotes(stock.notes || '');
     }
-  }, [stock]);
+  }, [stock, currency, exchangeRate]);
 
   if (!isOpen || !stock || !currentUser) return null;
 
@@ -41,11 +44,13 @@ export const EditStockModal: React.FC<EditStockModalProps> = ({ stock, isOpen, o
     const amountNum = parseFloat(investedAmount);
     if (!assetName.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
+    const baseInvested = convertInputToBase(amountNum);
+
     updateStock({
       ...stock,
       assetName: assetName.trim(),
       ticker: ticker.trim().toUpperCase() || undefined,
-      investedAmount: amountNum,
+      investedAmount: baseInvested,
       shares: shares ? parseFloat(shares) : undefined,
       date,
       monthYear: date.slice(0, 7),
@@ -127,6 +132,11 @@ export const EditStockModal: React.FC<EditStockModalProps> = ({ stock, isOpen, o
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/10 text-white text-base font-bold focus:outline-none focus:border-indigo-500"
               />
             </div>
+            {currency === 'INR' && parseFloat(investedAmount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300">
+                ≈ €{Math.round(parseFloat(investedAmount) / exchangeRate)} EUR base capital
+              </p>
+            )}
           </div>
 
           <div>

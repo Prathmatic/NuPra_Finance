@@ -6,11 +6,12 @@ import {
   Trash2, 
   ArrowDownCircle, 
   ArrowUpCircle,
-  Users
+  Users,
+  Target
 } from 'lucide-react';
 import { Transaction, PaymentMethod } from '../../types/finance';
 import { CategoryDropdown } from '../categories/CategoryDropdown';
-import { getCurrencySymbol } from '../../utils/formatters';
+import { getCurrencySymbol, getGoalSavingsTitle } from '../../utils/formatters';
 
 interface EditTransactionModalProps {
   transaction: Transaction | null;
@@ -40,7 +41,9 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     categories, 
     currency, 
     updateTransaction,
-    deleteTransaction
+    deleteTransaction,
+    convertInputToBase,
+    exchangeRate,
   } = useFinance();
 
   const [type, setType] = useState<'expense' | 'income'>('expense');
@@ -56,18 +59,24 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (transaction) {
       setType(transaction.type);
       setTitle(transaction.title);
-      setAmount(transaction.amount.toString());
+      // If currency is INR, display amount converted to INR
+      const displayAmt = currency === 'INR' 
+        ? Math.round(transaction.amount * exchangeRate).toString()
+        : transaction.amount.toString();
+      setAmount(displayAmt);
       setSelectedCatId(transaction.categoryId);
       setPaymentMethod(transaction.paymentMethod || 'None');
       setIsShared(transaction.isShared);
       setDate(transaction.date);
       setShowConfirmDelete(false);
     }
-  }, [transaction]);
+  }, [transaction, currency, exchangeRate]);
 
   if (!isOpen || !transaction || !currentUser) return null;
   // Safety guard: Cannot edit partner's transaction
   if (transaction.userId !== currentUser.id) return null;
+
+  const { goalName, isGoalSavings } = getGoalSavingsTitle(transaction);
 
   const currentCategories = categories.filter(
     c => c.type === 'both' || c.type === type
@@ -86,10 +95,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
     const finalTitle = title.trim() || selectedCategory.name;
 
+    // Convert input amount to base EUR if currency is INR
+    const baseAmount = convertInputToBase(parsedAmount);
+
     updateTransaction({
       ...transaction,
       title: finalTitle,
-      amount: parsedAmount,
+      amount: baseAmount,
       type,
       categoryId: selectedCategory.id,
       categoryName: selectedCategory.name,
@@ -131,6 +143,25 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {isGoalSavings && (
+          <div className="mt-3.5 p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex items-center gap-2.5 text-xs">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <Target className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 block">
+                Linked to Savings Goal
+              </span>
+              <p className="font-bold text-white truncate text-xs">
+                {goalName || 'Couples Savings Goal'}
+              </p>
+              <p className="text-[11px] text-slate-300 truncate">
+                {transaction.notes || 'Goal contribution expense'}
+              </p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Expense vs Income Toggle */}
@@ -183,6 +214,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-slate-800/80 border border-white/15 text-2xl font-black text-white focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600"
               />
             </div>
+
+            {currency === 'INR' && parseFloat(amount) > 0 && (
+              <p className="mt-1 text-[11px] text-teal-300 font-medium flex items-center gap-1">
+                <span>≈ €{(parseFloat(amount) / exchangeRate).toFixed(2)} EUR</span>
+                <span className="text-slate-400 font-normal">(stored in base currency at 1 € = ₹{exchangeRate.toFixed(2)})</span>
+              </p>
+            )}
           </div>
 
           {/* Description */}
