@@ -28,6 +28,7 @@ import {
 import { formatCurrency, getCurrencySymbol } from '../../utils/formatters';
 import { GoalStatsCard } from '../goals/GoalStatsCard';
 import { CategoryExpenseBarCard } from './CategoryExpenseBarCard';
+import { CategorySpendingSharePieCard } from './CategorySpendingSharePieCard';
 import { BudgetLimitStatsCard } from './BudgetLimitStatsCard';
 import { BudgetSettingsModal } from '../dashboard/BudgetSettingsModal';
 
@@ -167,40 +168,6 @@ export const StatisticsView: React.FC = () => {
 
   const activePeriodData = timeframe === 'monthly' ? monthlyData : yearlyData;
 
-  // 2. Spending Category Breakdown (Pie Chart)
-  const categoryChartData = useMemo(() => {
-    const catMap: Record<string, { name: string; value: number; color: string }> = {};
-
-    transactions.filter(t => t.type === 'expense').forEach(t => {
-      const isStockOrInvestmentTx = Boolean(
-        t.stockId || 
-        t.title?.startsWith('Stock Investment:') || 
-        t.categoryId === 'cat-investment' || 
-        t.categoryName?.toLowerCase() === 'investment'
-      );
-      if (isStockOrInvestmentTx) return;
-
-      if (!catMap[t.categoryName]) {
-        catMap[t.categoryName] = {
-          name: t.categoryName,
-          value: 0,
-          color: t.categoryColor || '#f43f5e',
-        };
-      }
-      catMap[t.categoryName].value += t.amount;
-    });
-
-    const activeStocksTotal = (stocks || []).reduce((sum, s) => sum + s.investedAmount, 0);
-    if (activeStocksTotal > 0) {
-      catMap['Investment'] = {
-        name: 'Investment',
-        value: activeStocksTotal,
-        color: '#3B82F6',
-      };
-    }
-
-    return Object.values(catMap).sort((a, b) => b.value - a.value);
-  }, [transactions, stocks]);
 
   // 3. Goal Deficit Data ("how much amount is needed more to achieve goal")
   const goalDeficitData = useMemo(() => {
@@ -660,57 +627,14 @@ export const StatisticsView: React.FC = () => {
         partner={partner}
       />
 
-      {/* 6. OVERALL CATEGORY DISTRIBUTION (PIE CHART) */}
-      <div className="glass-card p-5 rounded-3xl border border-white/10 space-y-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-pink-500/20 text-pink-400">
-            <PieIcon className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-white">
-              Category Spending Share
-            </h3>
-            <p className="text-[11px] text-slate-400">Macro proportion of couple expenses</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 items-center gap-4">
-          <div className="h-56 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={categoryChartData}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  dataKey="value"
-                >
-                  {categoryChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px', color: '#fff', fontSize: '12px' }}
-                  formatter={(val: any) => [formatCurrency(Number(val), currency)]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Slices legend list */}
-          <div className="space-y-1.5 max-h-56 overflow-y-auto no-scrollbar">
-            {categoryChartData.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between text-xs py-1 border-b border-white/5">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                  <span className="text-slate-300 font-medium truncate max-w-[120px]">{item.name}</span>
-                </div>
-                <span className="font-bold text-slate-200">{formatCurrency(item.value, currency)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* 6. OVERALL CATEGORY DISTRIBUTION & SPENDING SHARE (PIE CHART) */}
+      <CategorySpendingSharePieCard
+        transactions={transactions}
+        categories={categories}
+        currency={currency}
+        currentUser={currentUser}
+        partner={partner}
+      />
 
       {/* 4. Goal Savings Contribution & Progress Breakdown Plot */}
       <GoalStatsCard
