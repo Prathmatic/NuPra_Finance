@@ -1,3 +1,5 @@
+import { getSavedExchangeRate } from '../services/exchangeRateService';
+
 export interface StatementTransactionItem {
   date: string;
   title: string;
@@ -35,6 +37,7 @@ export interface StatementData {
   vaultId: string;
   accountHolders: string;
   currency: string;
+  exchangeRate?: number;
   totalIncome: number;
   totalExpense: number;
   netSavings: number;
@@ -62,6 +65,15 @@ function escapePdf(text: string | undefined): string {
     .replace(/\)/g, '\\)');
 }
 
+function formatMoney(amount: number, currency: string): string {
+  const isINR = currency === 'INR';
+  const formatted = new Intl.NumberFormat(isINR ? 'en-IN' : 'en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+  return `${currency} ${formatted}`;
+}
+
 /**
  * Builds a high-definition standard PDF 1.4 binary for financial statements.
  * Features:
@@ -76,6 +88,9 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
   const pageHeight = 841.89; // Standard A4 height in points
   const margin = 32;
   const contentWidth = pageWidth - margin * 2; // 531.28pt
+
+  const effectiveExchangeRate = statement.exchangeRate || getSavedExchangeRate().rate || 106.75;
+  const rateStr = `1 EUR = ${effectiveExchangeRate.toFixed(2)} INR`;
 
   const goalsList = (statement.goals || []).slice(0, 4); // Show up to 4 primary goals on page 1
   const hasGoalsSection = goalsList.length > 0;
@@ -165,7 +180,7 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       // ─────────────────────────────────────────────────────────────────────────
       const boxY = bannerTop - bannerH - 3 - 68;
       const boxW = (contentWidth - 10) / 2;
-      const boxH = 62;
+      const boxH = 64;
 
       // Box 1: Account Info
       setColor(0.97, 0.98, 0.99); // #f8fafc
@@ -173,11 +188,12 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       drawRect(margin, boxY, boxW, boxH, true, true);
 
       setColor(0.06, 0.09, 0.16);
-      drawText('ACCOUNT INFORMATION', margin + 10, boxY + boxH - 14, '/F2', 8);
+      drawText('ACCOUNT INFORMATION', margin + 10, boxY + boxH - 13, '/F2', 8);
       setColor(0.3, 0.35, 0.45);
-      drawText(`Vault Name: ${statement.vaultName}`, margin + 10, boxY + boxH - 27, '/F1', 8);
-      drawText(`Account Scope: ${statement.scopeLabel}`, margin + 10, boxY + boxH - 39, '/F1', 8);
-      drawText(`Account Holders: ${statement.accountHolders}`, margin + 10, boxY + boxH - 51, '/F1', 8);
+      drawText(`Vault Name: ${statement.vaultName}`, margin + 10, boxY + boxH - 25, '/F1', 7.5);
+      drawText(`Account Scope: ${statement.scopeLabel}`, margin + 10, boxY + boxH - 36, '/F1', 7.5);
+      drawText(`Account Holders: ${statement.accountHolders}`, margin + 10, boxY + boxH - 47, '/F1', 7.5);
+      drawText('Audit Status: Official Verified Ledger', margin + 10, boxY + boxH - 58, '/F1', 7.5);
 
       // Box 2: Statement Period
       setColor(0.97, 0.98, 0.99);
@@ -185,11 +201,12 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       drawRect(margin + boxW + 10, boxY, boxW, boxH, true, true);
 
       setColor(0.06, 0.09, 0.16);
-      drawText('STATEMENT PERIOD DETAILS', margin + boxW + 20, boxY + boxH - 14, '/F2', 8);
+      drawText('STATEMENT PERIOD DETAILS', margin + boxW + 20, boxY + boxH - 13, '/F2', 8);
       setColor(0.3, 0.35, 0.45);
-      drawText(`Period: ${statement.periodLabel}`, margin + boxW + 20, boxY + boxH - 27, '/F1', 8);
-      drawText(`Base Currency: ${statement.currency}`, margin + boxW + 20, boxY + boxH - 39, '/F1', 8);
-      drawText(`Total Ledger Entries: ${statement.transactions.length} records`, margin + boxW + 20, boxY + boxH - 51, '/F1', 8);
+      drawText(`Period: ${statement.periodLabel}`, margin + boxW + 20, boxY + boxH - 25, '/F1', 7.5);
+      drawText(`Statement Currency: ${statement.currency}`, margin + boxW + 20, boxY + boxH - 36, '/F1', 7.5);
+      drawText(`Conversion Rate: ${rateStr}`, margin + boxW + 20, boxY + boxH - 47, '/F2', 7.5);
+      drawText(`Total Ledger Entries: ${statement.transactions.length} records`, margin + boxW + 20, boxY + boxH - 58, '/F1', 7.5);
 
       // ─────────────────────────────────────────────────────────────────────────
       // 3. EXECUTIVE FINANCIAL STATISTICS (4 CARDS)
@@ -205,7 +222,8 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       setColor(0.15, 0.45, 0.30);
       drawText('TOTAL CREDITS (INCOME)', margin + 6, statY + statH - 12, '/F2', 6.5);
       setColor(0.02, 0.58, 0.38);
-      drawText(`+${statement.currency} ${statement.totalIncome.toFixed(2)}`, margin + 6, statY + 10, '/F2', 10);
+      const incStr = `+${formatMoney(statement.totalIncome, statement.currency)}`;
+      drawText(incStr, margin + 6, statY + 10, '/F2', incStr.length > 15 ? 8 : 9.5);
 
       // Card 2: Total Expenses
       const card2X = margin + statW + 6;
@@ -215,7 +233,8 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       setColor(0.60, 0.18, 0.18);
       drawText('TOTAL DEBITS (EXPENSES)', card2X + 6, statY + statH - 12, '/F2', 6.5);
       setColor(0.85, 0.15, 0.15);
-      drawText(`-${statement.currency} ${statement.totalExpense.toFixed(2)}`, card2X + 6, statY + 10, '/F2', 10);
+      const expStr = `-${formatMoney(statement.totalExpense, statement.currency)}`;
+      drawText(expStr, card2X + 6, statY + 10, '/F2', expStr.length > 15 ? 8 : 9.5);
 
       // Card 3: Net Savings
       const card3X = margin + (statW + 6) * 2;
@@ -223,12 +242,14 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       setColor(0.78, 0.82, 0.95, true);
       drawRect(card3X, statY, statW, statH, true, true);
       setColor(0.20, 0.25, 0.50);
-      const rateStr = statement.savingsRate !== undefined ? ` (${statement.savingsRate}%)` : '';
-      drawText(`NET SAVINGS${rateStr}`, card3X + 6, statY + statH - 12, '/F2', 6.5);
+      const rateStrNet = statement.savingsRate !== undefined ? ` (${statement.savingsRate}%)` : '';
+      drawText(`NET SAVINGS${rateStrNet}`, card3X + 6, statY + statH - 12, '/F2', 6.5);
       const isPositive = statement.netSavings >= 0;
       if (isPositive) setColor(0.06, 0.09, 0.16);
       else setColor(0.85, 0.15, 0.15);
-      drawText(`${isPositive ? '+' : '-'}${statement.currency} ${Math.abs(statement.netSavings).toFixed(2)}`, card3X + 6, statY + 10, '/F2', 10);
+      const netPrefix = isPositive ? '+' : '-';
+      const netStr = `${netPrefix}${formatMoney(Math.abs(statement.netSavings), statement.currency)}`;
+      drawText(netStr, card3X + 6, statY + 10, '/F2', netStr.length > 15 ? 8 : 9.5);
 
       // Card 4: Goal Capital / Allocations
       const card4X = margin + (statW + 6) * 3;
@@ -238,7 +259,8 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       setColor(0.40, 0.15, 0.55);
       drawText('GOALS CAPITAL ALLOCATED', card4X + 6, statY + statH - 12, '/F2', 6.5);
       setColor(0.45, 0.12, 0.65);
-      drawText(`${statement.currency} ${(statement.goalCapital || 0).toFixed(2)}`, card4X + 6, statY + 10, '/F2', 10);
+      const goalStr = formatMoney(statement.goalCapital || 0, statement.currency);
+      drawText(goalStr, card4X + 6, statY + 10, '/F2', goalStr.length > 15 ? 8 : 9.5);
 
       // ─────────────────────────────────────────────────────────────────────────
       // 4. FINANCIAL ALLOCATION PIE CHART
@@ -338,7 +360,11 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
 
           // Amount + pct
           setColor(0.35, 0.40, 0.50);
-          drawText(`${statement.currency} ${item.amount.toFixed(0)} (${item.percentage}%)`, lx + 10, ly - 10.5, '/F1', 5.5);
+          const isINR = statement.currency === 'INR';
+          const amtFormatted = new Intl.NumberFormat(isINR ? 'en-IN' : 'en-US', {
+            maximumFractionDigits: 0,
+          }).format(item.amount);
+          drawText(`${statement.currency} ${amtFormatted} (${item.percentage}%)`, lx + 10, ly - 10.5, '/F1', 5.5);
         });
 
         currentSectionY -= (pieSectionH + 8);
@@ -393,10 +419,10 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
           drawText(cleanGoalTitle, gCol1, currentSectionY + 4.5, '/F2', 7.5);
 
           setColor(0.3, 0.35, 0.45);
-          drawText(`${statement.currency} ${g.targetAmount.toFixed(2)}`, gCol2, currentSectionY + 4.5, '/F1', 7.5);
+          drawText(formatMoney(g.targetAmount, statement.currency), gCol2, currentSectionY + 4.5, '/F1', 7.5);
 
           setColor(0.02, 0.58, 0.38);
-          drawText(`${statement.currency} ${g.currentAmount.toFixed(2)}`, gCol3, currentSectionY + 4.5, '/F2', 7.5);
+          drawText(formatMoney(g.currentAmount, statement.currency), gCol3, currentSectionY + 4.5, '/F2', 7.5);
 
           setColor(0.2, 0.25, 0.45);
           drawText(`${pct}% Completed`, gCol4, currentSectionY + 4.5, '/F1', 7.5);
@@ -440,7 +466,7 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       drawText('CATEGORY', c3, currentSectionY - 12, '/F2', 7.5);
       drawText('PAID BY', c4, currentSectionY - 12, '/F2', 7.5);
       drawText('TYPE', c5, currentSectionY - 12, '/F2', 7.5);
-      drawText('AMOUNT', c6 - 45, currentSectionY - 12, '/F2', 7.5);
+      drawText('AMOUNT', c6 - 55, currentSectionY - 12, '/F2', 7.5);
 
       let rowY = currentSectionY - headerH;
       const rowH = 17;
@@ -482,10 +508,11 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
         }
 
         // Amount (Formatted with currency)
-        const amtStr = `${t.type === 'income' ? '+' : '-'}${statement.currency} ${Number(t.amount).toFixed(2)}`;
+        const amtPrefix = t.type === 'income' ? '+' : '-';
+        const amtStr = `${amtPrefix}${formatMoney(Math.abs(Number(t.amount)), statement.currency)}`;
         if (t.type === 'income') setColor(0.02, 0.58, 0.38);
         else setColor(0.85, 0.18, 0.18);
-        drawText(amtStr, c6 - 65, rowY + 5, '/F2', 7.5);
+        drawText(amtStr, c6 - 75, rowY + 5, '/F2', 7.5);
       });
 
       if (pageTxs.length === 0) {
@@ -501,7 +528,7 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       setColor(0.06, 0.09, 0.16);
       drawText('NUPRA FINANCE — TRANSACTION AUDIT LEDGER', margin, subTop - 12, '/F2', 10);
       setColor(0.4, 0.45, 0.55);
-      drawText(`${statement.scopeLabel} · ${statement.periodLabel} · Vault ID: ${statement.vaultId}`, margin, subTop - 24, '/F1', 8);
+      drawText(`${statement.scopeLabel} · ${statement.periodLabel} · Vault ID: ${statement.vaultId} · FX: ${rateStr}`, margin, subTop - 24, '/F1', 7.5);
 
       setColor(0.85, 0.88, 0.92, true);
       ops.push(`${margin} ${(subTop - 29).toFixed(2)} m ${(margin + contentWidth).toFixed(2)} ${(subTop - 29).toFixed(2)} l S`);
@@ -525,7 +552,7 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       drawText('CATEGORY', c3, tableTop - 12, '/F2', 7.5);
       drawText('PAID BY', c4, tableTop - 12, '/F2', 7.5);
       drawText('TYPE', c5, tableTop - 12, '/F2', 7.5);
-      drawText('AMOUNT', c6 - 45, tableTop - 12, '/F2', 7.5);
+      drawText('AMOUNT', c6 - 55, tableTop - 12, '/F2', 7.5);
 
       let rowY = tableTop - headerH;
       const rowH = 17;
@@ -561,10 +588,11 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
           drawText('DR', c5, rowY + 5, '/F2', 7.5);
         }
 
-        const amtStr = `${t.type === 'income' ? '+' : '-'}${statement.currency} ${Number(t.amount).toFixed(2)}`;
+        const amtPrefix = t.type === 'income' ? '+' : '-';
+        const amtStr = `${amtPrefix}${formatMoney(Math.abs(Number(t.amount)), statement.currency)}`;
         if (t.type === 'income') setColor(0.02, 0.58, 0.38);
         else setColor(0.85, 0.18, 0.18);
-        drawText(amtStr, c6 - 65, rowY + 5, '/F2', 7.5);
+        drawText(amtStr, c6 - 75, rowY + 5, '/F2', 7.5);
       });
     }
 
@@ -576,8 +604,8 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
     ops.push(`${margin} ${footerY + 12} m ${(margin + contentWidth).toFixed(2)} ${footerY + 12} l S`);
 
     setColor(0.45, 0.50, 0.60);
-    drawText(`NuPra Finance Official Verified Ledger • Page ${pageIdx + 1} of ${totalPages}`, margin, footerY + 2, '/F1', 7.5);
-    drawText('Confidential • Generated securely for account holders', margin + contentWidth - 210, footerY + 2, '/F1', 7.5);
+    drawText(`NuPra Finance Official Verified Ledger | Page ${pageIdx + 1} of ${totalPages}`, margin, footerY + 2, '/F1', 7.5);
+    drawText('Confidential | Generated securely for account holders', margin + contentWidth - 210, footerY + 2, '/F1', 7.5);
 
     pageStreams.push(ops.join('\n'));
   });

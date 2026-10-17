@@ -20,6 +20,7 @@ import { formatCurrency, formatMonthYear } from '../../utils/formatters';
 import { Transaction } from '../../types/finance';
 import { generateStatementPdfBlob, StatementData, StatementBreakdownItem } from '../../utils/pdfGenerator';
 import { exportFile } from '../../utils/fileDownloader';
+import { getSavedExchangeRate } from '../../services/exchangeRateService';
 
 interface ExportStatementModalProps {
   isOpen: boolean;
@@ -42,8 +43,11 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     stocks,
     currency, 
     selectedMonth,
-    showToast 
+    showToast,
+    exchangeRate 
   } = useFinance();
+
+  const effectiveExchangeRate = exchangeRate || getSavedExchangeRate().rate || 106.75;
 
   const [scope, setScope] = useState<StatementScope>('couple');
   const [periodType, setPeriodType] = useState<StatementPeriod>('monthly');
@@ -304,13 +308,16 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       'Shared Status'
     ];
 
+    const rateMultiplier = currency === 'INR' ? effectiveExchangeRate : 1;
+    const convertCsvAmount = (val: number) => currency === 'INR' ? Math.round(val * rateMultiplier) : val;
+
     const rows = statementTransactions.map(t => [
       `"${t.id}"`,
       `"${t.date}"`,
       `"${(t.title || '').replace(/"/g, '""')}"`,
       `"${(t.categoryName || '').replace(/"/g, '""')}"`,
       `"${t.type.toUpperCase()}"`,
-      t.amount,
+      convertCsvAmount(t.amount),
       `"${currency}"`,
       `"${(t.userName || '').replace(/"/g, '""')}"`,
       `"${(t.paymentMethod || 'Unspecified').replace(/"/g, '""')}"`,
@@ -355,12 +362,20 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       const cleanPeriod = periodType === 'monthly' ? targetMonth : periodType === 'yearly' ? targetYear : 'AllTime';
       const fileName = `NuPra_Statement_${cleanScope}_${cleanPeriod}.pdf`;
 
+      const rateMultiplier = currency === 'INR' ? effectiveExchangeRate : 1;
+      const convertPdfAmount = (val: number) => currency === 'INR' ? Math.round(val * rateMultiplier) : val;
+
       const relevantGoals = (goals || []).map(g => ({
         id: g.id,
         title: g.title,
-        targetAmount: g.targetAmount,
-        currentAmount: g.currentAmount,
+        targetAmount: convertPdfAmount(g.targetAmount),
+        currentAmount: convertPdfAmount(g.currentAmount),
         isCompleted: Boolean(g.isCompleted || g.currentAmount >= g.targetAmount),
+      }));
+
+      const convertedBreakdown = breakdown.map(item => ({
+        ...item,
+        amount: convertPdfAmount(item.amount),
       }));
 
       const statementData: StatementData = {
@@ -371,13 +386,14 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
         vaultId: vault?.id || 'NP-VAULT',
         accountHolders: `${currentUser.name}${partner ? ` & ${partner.name}` : ''}`,
         currency,
-        totalIncome,
-        totalExpense,
-        netSavings,
+        exchangeRate: effectiveExchangeRate,
+        totalIncome: convertPdfAmount(totalIncome),
+        totalExpense: convertPdfAmount(totalExpense),
+        netSavings: convertPdfAmount(netSavings),
         savingsRate,
-        goalCapital,
-        stocksInvested,
-        breakdown,
+        goalCapital: convertPdfAmount(goalCapital),
+        stocksInvested: convertPdfAmount(stocksInvested),
+        breakdown: convertedBreakdown,
         transactions: statementTransactions.map(t => ({
           date: t.date,
           title: t.title,
@@ -385,7 +401,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
           userName: t.userName,
           paymentMethod: t.paymentMethod,
           type: t.type,
-          amount: t.amount,
+          amount: convertPdfAmount(t.amount),
           isGoalExpense: Boolean(t.isGoalExpense),
         })),
         goals: relevantGoals,
@@ -679,6 +695,13 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
                   </p>
                 </div>
               </div>
+
+              {currency === 'INR' && (
+                <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-white/5 text-slate-400">
+                  <span>Conversion Benchmark:</span>
+                  <span className="font-mono text-indigo-300 font-semibold">1 EUR = {effectiveExchangeRate.toFixed(2)} INR</span>
+                </div>
+              )}
             </div>
 
             {/* Generated PDF Direct Download Card */}
