@@ -238,10 +238,15 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
 
     const items: StatementBreakdownItem[] = [];
 
-    // Category-wise expenses
+    // Category-wise expenses (excluding stock investments, which are tracked via stocksInvested below)
     const catMap = new Map<string, number>();
     statementTransactions
-      .filter(t => t.type === 'expense' && !t.isGoalExpense)
+      .filter(t => t.type === 'expense' && !t.isGoalExpense && !(
+        t.stockId || 
+        t.title?.startsWith('Stock Investment:') || 
+        t.categoryId === 'cat-investment' || 
+        t.categoryName?.toLowerCase() === 'investment'
+      ))
       .forEach(t => {
         const cat = t.categoryName || 'Other';
         catMap.set(cat, (catMap.get(cat) || 0) + t.amount);

@@ -39,7 +39,7 @@ export const CategoryExpenseBarCard: React.FC<CategoryExpenseBarCardProps> = ({
   currentUser,
   partner,
 }) => {
-  const { exchangeRate } = useFinance();
+  const { exchangeRate, stocks } = useFinance();
   const [timeframe, setTimeframe] = useState<CategoryTimeframe>('month');
   const [barMode, setBarMode] = useState<CategoryBarMode>('split');
   const [showAll, setShowAll] = useState(false);
@@ -79,6 +79,16 @@ export const CategoryExpenseBarCard: React.FC<CategoryExpenseBarCardProps> = ({
     const partnerId = partner?.id;
 
     filteredExpenseTxs.forEach(t => {
+      // Exclude stock investment transactions from raw ledger iteration;
+      // investments are strictly derived from actual active stocks below
+      const isStockOrInvestmentTx = Boolean(
+        t.stockId || 
+        t.title?.startsWith('Stock Investment:') || 
+        t.categoryId === 'cat-investment' || 
+        t.categoryName?.toLowerCase() === 'investment'
+      );
+      if (isStockOrInvestmentTx) return;
+
       const catName = t.categoryName || 'Other';
       if (!catMap[catName]) {
         const matched = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
@@ -117,6 +127,38 @@ export const CategoryExpenseBarCard: React.FC<CategoryExpenseBarCardProps> = ({
       }
     });
 
+    // Derive Investment category strictly from actual active stocks in this timeframe
+    const periodStocks = (stocks || []).filter(s => {
+      if (timeframe === 'month') return s.monthYear === currentMonthPrefix || s.date?.startsWith(currentMonthPrefix);
+      if (timeframe === 'year') return s.date?.startsWith(currentYearPrefix);
+      return true;
+    });
+
+    if (periodStocks.length > 0) {
+      let myStockExp = 0;
+      let partnerStockExp = 0;
+      periodStocks.forEach(s => {
+        if (s.userId === myId) myStockExp += s.investedAmount;
+        else if (partnerId && s.userId === partnerId) partnerStockExp += s.investedAmount;
+        else myStockExp += s.investedAmount;
+      });
+
+      const totalStockExp = myStockExp + partnerStockExp;
+      if (totalStockExp > 0) {
+        catMap['Investment'] = {
+          id: 'cat-investment',
+          name: 'Investment',
+          shortName: 'Investment',
+          icon: 'TrendingUp',
+          color: '#3B82F6',
+          myExpense: myStockExp,
+          partnerExpense: partnerStockExp,
+          togetherExpense: totalStockExp,
+          txCount: periodStocks.length,
+        };
+      }
+    }
+
     return Object.values(catMap)
       .sort((a, b) => b.togetherExpense - a.togetherExpense)
       .map(item => {
@@ -133,7 +175,7 @@ export const CategoryExpenseBarCard: React.FC<CategoryExpenseBarCardProps> = ({
           partnerPct,
         };
       });
-  }, [filteredExpenseTxs, currentUser, partner, categories]);
+  }, [filteredExpenseTxs, currentUser, partner, categories, stocks, timeframe, currentMonthPrefix, currentYearPrefix]);
 
   const totalPeriodExpense = useMemo(() => {
     return categoryData.reduce((sum, item) => sum + item.togetherExpense, 0);

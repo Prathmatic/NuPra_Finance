@@ -613,9 +613,23 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       resolvedCurrency = CloudStore.getUserCurrency();
     }
 
+    // Clean up orphaned stock transactions if stocks were deleted or are empty
+    const activeStockIds = new Set(mergedStocks.map(s => s.id));
+    const cleanedMergedTxs = mergedTxs.filter(t => {
+      if (t.stockId && !activeStockIds.has(t.stockId)) return false;
+      if (mergedStocks.length === 0 && (
+        t.stockId || 
+        t.title?.startsWith('Stock Investment:') || 
+        (t.categoryId === 'cat-investment' && (t.title?.toLowerCase() === 'investment' || t.notes?.toLowerCase().includes('stock investment')))
+      )) {
+        return false;
+      }
+      return true;
+    });
+
     // Update state & refs
-    setTransactions(mergedTxs);
-    transactionsRef.current = mergedTxs;
+    setTransactions(cleanedMergedTxs);
+    transactionsRef.current = cleanedMergedTxs;
     setGoals(mergedGoals);
     goalsRef.current = mergedGoals;
     setStocks(mergedStocks);
@@ -630,13 +644,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     budgetsRef.current = loadedBudgets;
 
     // Persist to local cache immediately
-    CloudStore.saveTransactions(mergedTxs);
+    CloudStore.saveTransactions(cleanedMergedTxs);
     CloudStore.saveGoals(mergedGoals);
     CloudStore.saveStocks(mergedStocks);
     CloudStore.saveBills(mergedBills);
     CloudStore.saveCategories(validCategories);
     CloudStore.saveUserCurrency(resolvedCurrency, currentUserId);
     CloudStore.saveBudgets(loadedBudgets);
+
+    if (cleanedMergedTxs.length !== mergedTxs.length) {
+      void pushToCloud({ transactions: cleanedMergedTxs });
+    }
   }, []);
 
   // Pull the authenticated user's current workspace and partner profile.
@@ -1602,6 +1620,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       isShared: true,
       notes: newStock.notes || `Stock investment by ${currentUser.name}`,
       createdAt: new Date().toISOString(),
+      stockId: newStock.id,
     };
     pendingCreatedStockIdsRef.current.add(newStock.id);
     pendingCreatedTxIdsRef.current.add(transaction.id);
@@ -1658,9 +1677,20 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setStocks(updated);
     stocksRef.current = updated;
     CloudStore.saveStocks(updated);
+
+    // Also remove any linked transactions created for this stock
+    const updatedTxs = (transactionsRef.current || []).filter(t => {
+      if (t.stockId === id) return false;
+      if (existing && t.title?.includes(existing.assetName) && (t.categoryId === 'cat-investment' || t.categoryName?.toLowerCase() === 'investment')) return false;
+      return true;
+    });
+    setTransactions(updatedTxs);
+    transactionsRef.current = updatedTxs;
+    CloudStore.saveTransactions(updatedTxs);
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ stocks: updated });
+    void pushToCloud({ stocks: updated, transactions: updatedTxs });
     showToast('Stock investment removed', 'info');
   };
 

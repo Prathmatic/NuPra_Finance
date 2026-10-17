@@ -172,6 +172,14 @@ export const StatisticsView: React.FC = () => {
     const catMap: Record<string, { name: string; value: number; color: string }> = {};
 
     transactions.filter(t => t.type === 'expense').forEach(t => {
+      const isStockOrInvestmentTx = Boolean(
+        t.stockId || 
+        t.title?.startsWith('Stock Investment:') || 
+        t.categoryId === 'cat-investment' || 
+        t.categoryName?.toLowerCase() === 'investment'
+      );
+      if (isStockOrInvestmentTx) return;
+
       if (!catMap[t.categoryName]) {
         catMap[t.categoryName] = {
           name: t.categoryName,
@@ -182,8 +190,17 @@ export const StatisticsView: React.FC = () => {
       catMap[t.categoryName].value += t.amount;
     });
 
+    const activeStocksTotal = (stocks || []).reduce((sum, s) => sum + s.investedAmount, 0);
+    if (activeStocksTotal > 0) {
+      catMap['Investment'] = {
+        name: 'Investment',
+        value: activeStocksTotal,
+        color: '#3B82F6',
+      };
+    }
+
     return Object.values(catMap).sort((a, b) => b.value - a.value);
-  }, [transactions]);
+  }, [transactions, stocks]);
 
   // 3. Goal Deficit Data ("how much amount is needed more to achieve goal")
   const goalDeficitData = useMemo(() => {

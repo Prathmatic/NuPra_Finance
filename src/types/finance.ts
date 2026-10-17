@@ -94,6 +94,7 @@ export interface Transaction {
   isGoalExpense?: boolean;
   goalId?: string;
   goalTitle?: string;
+  stockId?: string;
 }
 
 export interface GoalContribution {
