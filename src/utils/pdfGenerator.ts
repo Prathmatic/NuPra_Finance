@@ -18,6 +18,15 @@ export interface StatementGoalItem {
   category?: string;
 }
 
+export interface StatementBreakdownItem {
+  name: string;
+  amount: number;
+  percentage: number;
+  /** PDF fill color as [r,g,b] in 0-1 range */
+  color: [number, number, number];
+  type: 'savings' | 'expense' | 'goal' | 'stock';
+}
+
 export interface StatementData {
   scopeLabel: string;
   periodLabel: string;
@@ -31,6 +40,8 @@ export interface StatementData {
   netSavings: number;
   savingsRate?: number;
   goalCapital?: number;
+  stocksInvested?: number;
+  breakdown?: StatementBreakdownItem[];
   transactions: StatementTransactionItem[];
   goals?: StatementGoalItem[];
 }
@@ -230,10 +241,114 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
       drawText(`${statement.currency} ${(statement.goalCapital || 0).toFixed(2)}`, card4X + 6, statY + 10, '/F2', 10);
 
       // ─────────────────────────────────────────────────────────────────────────
-      // 4. FINANCIAL GOALS & MILESTONES SECTION (SEPARATE)
+      // 4. FINANCIAL ALLOCATION PIE CHART
       // ─────────────────────────────────────────────────────────────────────────
+      const pieItems = (statement.breakdown || []).filter(b => b.amount > 0);
+      const hasPie = pieItems.length > 0;
       let currentSectionY = statY - 14;
 
+      if (hasPie) {
+        currentSectionY -= 12;
+        setColor(0.06, 0.09, 0.16);
+        drawText('FINANCIAL ALLOCATION & EXPENSE BREAKDOWN', margin, currentSectionY, '/F2', 9);
+        currentSectionY -= 6;
+
+        // Section background
+        const pieSectionH = 110;
+        setColor(0.97, 0.98, 0.99);
+        setColor(0.88, 0.90, 0.94, true);
+        drawRect(margin, currentSectionY - pieSectionH, contentWidth, pieSectionH, true, true);
+
+        // -- Draw pie chart (vector wedges) --
+        const cx = margin + 58;  // pie center x
+        const cy = currentSectionY - pieSectionH / 2; // pie center y
+        const R = 42;  // radius
+
+        const total = pieItems.reduce((s, b) => s + b.amount, 0);
+        let startAngle = -Math.PI / 2; // start at top
+
+        pieItems.forEach(item => {
+          const sweep = (item.amount / total) * 2 * Math.PI;
+          const endAngle = startAngle + sweep;
+
+          // Build wedge: center -> arc (approx with many segments) -> close
+          const [r, g, b] = item.color;
+          setColor(r, g, b);
+
+          // Draw wedge as polyline path
+          const steps = Math.max(8, Math.ceil(sweep * 8));
+          const pts: string[] = [];
+          pts.push(`${cx.toFixed(2)} ${cy.toFixed(2)} m`);
+          for (let s = 0; s <= steps; s++) {
+            const a = startAngle + (sweep * s) / steps;
+            const px = cx + R * Math.cos(a);
+            const py = cy + R * Math.sin(a);
+            pts.push(`${px.toFixed(2)} ${py.toFixed(2)} l`);
+          }
+          pts.push('h f'); // close & fill
+          ops.push(pts.join(' '));
+
+          startAngle = endAngle;
+        });
+
+        // White center circle (donut effect)
+        setColor(0.97, 0.98, 0.99);
+        const innerR = R * 0.42;
+        const innerSteps = 24;
+        const innerPts: string[] = [];
+        for (let s = 0; s <= innerSteps; s++) {
+          const a = (2 * Math.PI * s) / innerSteps;
+          const px = cx + innerR * Math.cos(a);
+          const py = cy + innerR * Math.sin(a);
+          innerPts.push(s === 0 ? `${px.toFixed(2)} ${py.toFixed(2)} m` : `${px.toFixed(2)} ${py.toFixed(2)} l`);
+        }
+        innerPts.push('h f');
+        ops.push(innerPts.join(' '));
+
+        // Total label in center
+        setColor(0.06, 0.09, 0.16);
+        drawText('TOTAL', cx - 11, cy + 5, '/F2', 5.5);
+        setColor(0.20, 0.50, 0.35);
+        const totalStr = total >= 10000 ? `${(total / 1000).toFixed(1)}k` : total.toFixed(0);
+        drawText(totalStr, cx - 10, cy - 3, '/F2', 6.5);
+
+        // -- Legend (right side, 2-column grid) --
+        const legendX = margin + 124;
+        const legendRowH = 14;
+        const legendColW = (contentWidth - 130) / 2;
+        const legendStartY = currentSectionY - 14;
+
+        pieItems.forEach((item, idx) => {
+          const col = idx % 2;
+          const row = Math.floor(idx / 2);
+          const lx = legendX + col * legendColW;
+          const ly = legendStartY - row * legendRowH;
+
+          if (ly < currentSectionY - pieSectionH + 8) return; // out of bounds guard
+
+          // Colored swatch
+          const [r, g, b] = item.color;
+          setColor(r, g, b);
+          drawRect(lx, ly - 5, 7, 7, true, false);
+
+          // Name
+          setColor(0.06, 0.09, 0.16);
+          const truncName = item.name.length > 18 ? item.name.slice(0, 16) + '..' : item.name;
+          drawText(truncName, lx + 10, ly - 4, '/F2', 6.5);
+
+          // Amount + pct
+          setColor(0.35, 0.40, 0.50);
+          drawText(`${statement.currency} ${item.amount.toFixed(0)} (${item.percentage}%)`, lx + 10, ly - 10.5, '/F1', 5.5);
+        });
+
+        currentSectionY -= (pieSectionH + 8);
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // 5. FINANCIAL GOALS & MILESTONES SECTION (SEPARATE)
+      // ─────────────────────────────────────────────────────────────────────────
+
+      // Goals section follows directly (section label removed - printed in block above)
       if (hasGoalsSection) {
         currentSectionY -= 14;
         setColor(0.06, 0.09, 0.16);
@@ -514,33 +629,3 @@ export function generateStatementPdfBlob(statement: StatementData): Blob {
   return new Blob([uint8.buffer as ArrayBuffer], { type: 'application/pdf' });
 }
 
-/**
- * Universal print trigger.
- */
-export function printStatementHtml(html: string): void {
-  try {
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => {
-        try {
-          win.print();
-        } catch (e) {
-          console.warn('Window print failed:', e);
-        }
-      }, 350);
-      return;
-    }
-  } catch (winErr) {
-    console.warn('window.open was blocked or unavailable:', winErr);
-  }
-
-  try {
-    window.print();
-  } catch (e) {
-    console.error('Direct window.print() failed:', e);
-  }
-}

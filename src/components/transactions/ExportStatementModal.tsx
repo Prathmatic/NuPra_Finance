@@ -4,7 +4,6 @@ import {
   X, 
   FileText, 
   Download, 
-  Printer, 
   Users, 
   User, 
   FileDown,
@@ -12,16 +11,14 @@ import {
   Loader2,
   ArrowRight,
   CheckCircle,
-  Copy,
   Check,
   Share2,
-  ArrowLeft,
   ExternalLink,
   Target
 } from 'lucide-react';
 import { formatCurrency, formatMonthYear } from '../../utils/formatters';
 import { Transaction } from '../../types/finance';
-import { generateStatementPdfBlob, StatementData } from '../../utils/pdfGenerator';
+import { generateStatementPdfBlob, StatementData, StatementBreakdownItem } from '../../utils/pdfGenerator';
 import { exportFile } from '../../utils/fileDownloader';
 
 interface ExportStatementModalProps {
@@ -42,6 +39,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     vault, 
     transactions, 
     goals,
+    stocks,
     currency, 
     selectedMonth,
     showToast 
@@ -52,7 +50,6 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
   const [targetMonth, setTargetMonth] = useState<string>(selectedMonth);
   const [targetYear, setTargetYear] = useState<string>(new Date().getFullYear().toString());
   const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [showPrintPreview, setShowPrintPreview] = useState<boolean>(false);
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null);
   const [pdfFileName, setPdfFileName] = useState<string>('');
   const [csvCopied, setCsvCopied] = useState<boolean>(false);
@@ -176,7 +173,7 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
   }, [transactions, scope, periodType, targetMonth, targetYear, currentUser, partner]);
 
   // Aggregate financial metrics
-  const { totalIncome, totalExpense, netSavings, savingsRate, goalCapital } = useMemo(() => {
+  const { totalIncome, totalExpense, netSavings, savingsRate, goalCapital, stocksInvested } = useMemo(() => {
     let inc = 0;
     let exp = 0;
     statementTransactions.forEach(t => {
@@ -187,11 +184,19 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
     // Goal capital allocated in this timeframe
     let goalsTotal = 0;
     (goals || []).forEach(g => {
-      (g.contributions || []).forEach(c => {
+      (g.contributions || []).forEach((c: { date?: string; amount: number }) => {
         if (periodType === 'monthly' && c.date?.startsWith(targetMonth)) goalsTotal += c.amount;
         else if (periodType === 'yearly' && c.date?.startsWith(targetYear)) goalsTotal += c.amount;
         else if (periodType === 'all') goalsTotal += c.amount;
       });
+    });
+
+    // Stocks invested in this timeframe
+    let stocksTotal = 0;
+    (stocks || []).forEach(s => {
+      if (periodType === 'monthly' && s.monthYear === targetMonth) stocksTotal += s.investedAmount;
+      else if (periodType === 'yearly' && s.date?.startsWith(targetYear)) stocksTotal += s.investedAmount;
+      else if (periodType === 'all') stocksTotal += s.investedAmount;
     });
 
     const net = inc - exp;
@@ -203,10 +208,69 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       netSavings: net,
       savingsRate: rate,
       goalCapital: goalsTotal,
+      stocksInvested: stocksTotal,
     };
-  }, [statementTransactions, goals, periodType, targetMonth, targetYear]);
+  }, [statementTransactions, goals, stocks, periodType, targetMonth, targetYear]);
+
+  // Build breakdown for pie chart
+  const breakdown = useMemo((): StatementBreakdownItem[] => {
+    const CATEGORY_COLORS: Record<string, [number, number, number]> = {
+      'Food': [0.95, 0.45, 0.25],
+      'Groceries': [0.90, 0.60, 0.10],
+      'Rent': [0.35, 0.45, 0.85],
+      'Housing': [0.35, 0.45, 0.85],
+      'Transport': [0.20, 0.60, 0.85],
+      'Travel': [0.10, 0.65, 0.80],
+      'Health': [0.80, 0.20, 0.40],
+      'Shopping': [0.75, 0.30, 0.80],
+      'Entertainment': [0.90, 0.70, 0.10],
+      'Utilities': [0.30, 0.70, 0.60],
+      'Education': [0.20, 0.40, 0.80],
+      'Personal': [0.60, 0.40, 0.80],
+      'Subscriptions': [0.50, 0.30, 0.70],
+      'Other': [0.55, 0.60, 0.65],
+    };
+    const DEFAULT_COLOR: [number, number, number] = [0.55, 0.60, 0.65];
+
+    const items: StatementBreakdownItem[] = [];
+
+    // Category-wise expenses
+    const catMap = new Map<string, number>();
+    statementTransactions
+      .filter(t => t.type === 'expense' && !t.isGoalExpense)
+      .forEach(t => {
+        const cat = t.categoryName || 'Other';
+        catMap.set(cat, (catMap.get(cat) || 0) + t.amount);
+      });
+    catMap.forEach((amount, name) => {
+      items.push({ name, amount, percentage: 0, color: CATEGORY_COLORS[name] || DEFAULT_COLOR, type: 'expense' });
+    });
+
+    // Net savings
+    if (netSavings > 0) {
+      items.push({ name: 'Savings', amount: netSavings, percentage: 0, color: [0.06, 0.72, 0.51], type: 'savings' });
+    }
+
+    // Goals capital
+    if (goalCapital > 0) {
+      items.push({ name: 'Goals Allocation', amount: goalCapital, percentage: 0, color: [0.55, 0.25, 0.85], type: 'goal' });
+    }
+
+    // Stocks invested
+    if (stocksInvested > 0) {
+      items.push({ name: 'Share Market', amount: stocksInvested, percentage: 0, color: [0.12, 0.60, 0.85], type: 'stock' });
+    }
+
+    const total = items.reduce((s, i) => s + i.amount, 0);
+    if (total > 0) {
+      items.forEach(i => { i.percentage = Math.round((i.amount / total) * 100); });
+    }
+
+    return items.sort((a, b) => b.amount - a.amount);
+  }, [statementTransactions, netSavings, goalCapital, stocksInvested]);
 
   if (!isOpen || !currentUser) return null;
+
 
   const scopeLabel = scope === 'couple' 
     ? 'Couple Joint Account' 
@@ -312,6 +376,8 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
         netSavings,
         savingsRate,
         goalCapital,
+        stocksInvested,
+        breakdown,
         transactions: statementTransactions.map(t => ({
           date: t.date,
           title: t.title,
@@ -346,23 +412,10 @@ export const ExportStatementModal: React.FC<ExportStatementModalProps> = ({
       showToast(result.message, result.success ? 'success' : 'info');
     } catch (err) {
       console.error('PDF export error:', err);
-      showToast('Could not generate PDF. Opening Print View...', 'error');
-      setShowPrintPreview(true);
+      showToast('Could not generate PDF. Please try again.', 'error');
     } finally {
       setIsExporting(false);
     }
-  };
-
-  // Open Full In-App Statement Preview / Print Dialog
-  const handleOpenPrintPreview = () => {
-    setShowPrintPreview(true);
-    setTimeout(() => {
-      try {
-        window.print();
-      } catch (e) {
-        console.warn('Print call warning:', e);
-      }
-    }, 350);
   };
 
   // Share plain text statement summary via WhatsApp, Email, Notes
@@ -403,241 +456,8 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      {/* ───────────────────────────────────────────────────────────────────
-          VIEW 1: IN-APP HIGH-DEFINITION STATEMENT PRINT PREVIEW
-          ─────────────────────────────────────────────────────────────────── */}
-      {showPrintPreview ? (
-        <div className="relative w-full max-w-4xl bg-white text-slate-900 rounded-3xl p-4 sm:p-8 shadow-2xl max-h-[94vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-          {/* Top Actions Bar (Hidden during print) */}
-          <div className="no-print flex items-center justify-between pb-4 mb-4 border-b border-slate-200 gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setShowPrintPreview(false)}
-              className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to Options</span>
-            </button>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="py-2 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95"
-              >
-                <Printer className="w-4 h-4 text-emerald-400" />
-                <span>Print / Save as PDF</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleShareTextSummary}
-                className="py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share Summary</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportCSV}
-                className="py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <Download className="w-4 h-4" />
-                <span>CSV</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Scrollable Printable Statement Body */}
-          <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pr-1" id="statement-printable-section">
-            {/* Statement Header with NP Logo */}
-            <div className="flex justify-between items-start pb-4 border-b-2 border-slate-900 gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-700 border-2 border-emerald-500 flex items-center justify-center text-white font-black text-xl shadow-md shrink-0">
-                  NP
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">NuPra Finance</h1>
-                    <span className="bg-slate-900 text-white text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md tracking-wider">
-                      Official Statement
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Verified Financial Ledger & Audit Trail • {vault?.name || 'Couple Vault'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="text-right text-xs text-slate-600 space-y-0.5">
-                <p>Generated: <strong className="text-slate-900">{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong></p>
-                <p>Period: <strong className="text-slate-900">{periodLabel}</strong></p>
-                <p className="text-[10px] text-slate-400">Vault ID: {vault?.id || 'NP-VAULT'}</p>
-              </div>
-            </div>
-
-            {/* Account & Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Account Holder Scope</p>
-                <p className="font-bold text-slate-900 text-sm">{scopeLabel}</p>
-                <p className="text-slate-600">Vault: <strong className="text-slate-900">{vault?.name || 'Couple Vault'}</strong></p>
-                <p className="text-slate-600">Members: <strong className="text-slate-900">{currentUser.name}{partner ? ` & ${partner.name}` : ''}</strong></p>
-              </div>
-
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Statement Financials</p>
-                <p className="text-slate-600">Currency: <strong className="text-slate-900">{currency}</strong></p>
-                <p className="text-slate-600">Total Records: <strong className="text-slate-900">{statementTransactions.length} transactions</strong></p>
-                <p className="text-slate-600">
-                  Net Balance: <strong className={netSavings >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{formatCurrency(netSavings, currency)}</strong>
-                </p>
-              </div>
-            </div>
-
-            {/* Summary Metrics Quad */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-center">
-                <p className="text-[9px] uppercase font-bold text-emerald-700">Total Income (+)</p>
-                <p className="text-base sm:text-lg font-black text-emerald-800">+{formatCurrency(totalIncome, currency)}</p>
-              </div>
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-center">
-                <p className="text-[9px] uppercase font-bold text-rose-700">Total Expense (-)</p>
-                <p className="text-base sm:text-lg font-black text-rose-800">-{formatCurrency(totalExpense, currency)}</p>
-              </div>
-              <div className="p-3 bg-slate-100 border border-slate-300 rounded-2xl text-center">
-                <p className="text-[9px] uppercase font-bold text-slate-700">Net Savings ({savingsRate}%)</p>
-                <p className={`text-base sm:text-lg font-black ${netSavings >= 0 ? 'text-slate-900' : 'text-rose-800'}`}>
-                  {formatCurrency(netSavings, currency)}
-                </p>
-              </div>
-              <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-center">
-                <p className="text-[9px] uppercase font-bold text-purple-700">Goals Capital</p>
-                <p className="text-base sm:text-lg font-black text-purple-800">
-                  {formatCurrency(goalCapital, currency)}
-                </p>
-              </div>
-            </div>
-
-            {/* Financial Goals & Milestones Section (Separately) */}
-            {goals && goals.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Target className="w-4 h-4 text-emerald-600" />
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                    Financial Goals & Milestones
-                  </h3>
-                </div>
-                <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider">
-                        <th className="py-2 px-3 font-bold">Goal Name</th>
-                        <th className="py-2 px-3 font-bold">Target</th>
-                        <th className="py-2 px-3 font-bold">Current Saved</th>
-                        <th className="py-2 px-3 font-bold">Progress</th>
-                        <th className="py-2 px-3 font-bold text-right">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {goals.map(g => {
-                        const pct = g.targetAmount > 0 ? Math.min(100, Math.round((g.currentAmount / g.targetAmount) * 100)) : 0;
-                        return (
-                          <tr key={g.id} className="bg-white">
-                            <td className="py-2 px-3 font-bold text-slate-900">{g.title}</td>
-                            <td className="py-2 px-3 text-slate-600">{formatCurrency(g.targetAmount, currency)}</td>
-                            <td className="py-2 px-3 text-emerald-700 font-bold">{formatCurrency(g.currentAmount, currency)}</td>
-                            <td className="py-2 px-3">
-                              <div className="flex items-center gap-2">
-                                <div className="w-20 bg-slate-200 h-2 rounded-full overflow-hidden">
-                                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${pct}%` }} />
-                                </div>
-                                <span className="text-[10px] font-bold text-slate-600">{pct}%</span>
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
-                                g.isCompleted || pct >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
-                              }`}>
-                                {g.isCompleted || pct >= 100 ? 'Completed' : 'In Progress'}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Ledger Table */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                Transaction Ledger & Audit Trail
-              </h3>
-              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[10px] tracking-wider">
-                      <th className="py-2.5 px-3 font-bold">Date</th>
-                      <th className="py-2.5 px-3 font-bold">Description</th>
-                      <th className="py-2.5 px-3 font-bold">Category</th>
-                      <th className="py-2.5 px-3 font-bold">Paid By</th>
-                      <th className="py-2.5 px-3 font-bold text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {statementTransactions.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-slate-400">
-                          No transactions found in this period.
-                        </td>
-                      </tr>
-                    ) : (
-                      statementTransactions.map((t, idx) => (
-                        <tr key={t.id || idx} className={idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}>
-                          <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{t.date}</td>
-                          <td className="py-2 px-3 font-bold text-slate-900">
-                            {t.title}
-                            {t.isGoalExpense && (
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold">Goal</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-slate-600">{t.categoryName || 'General'}</td>
-                          <td className="py-2 px-3 text-slate-500">{t.userName || 'Joint'}</td>
-                          <td className={`py-2 px-3 text-right font-black whitespace-nowrap ${t.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                            {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount, currency)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="pt-4 border-t border-slate-200 text-center text-[10px] text-slate-400">
-              <p>NuPra Finance Official Statement • Personal and confidential financial ledger</p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* ───────────────────────────────────────────────────────────────────
-            VIEW 2: STATEMENT CONFIGURATION & DOWNLOAD MODAL
-            ─────────────────────────────────────────────────────────────────── */
-        <div className="relative w-full max-w-lg glass-panel bg-slate-900 border border-white/15 rounded-3xl p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar">
+      {/* STATEMENT CONFIGURATION & DOWNLOAD MODAL */}
+      <div className="relative w-full max-w-lg glass-panel bg-slate-900 border border-white/15 rounded-3xl p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto no-scrollbar">
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-white/10">
             <div className="flex items-center gap-2.5">
@@ -883,19 +703,13 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
                     <span>Open / Download PDF</span>
                     <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
                   </a>
-                  <button
-                    type="button"
-                    onClick={() => setShowPrintPreview(true)}
-                    className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-white/10 active:scale-95 transition-all"
-                  >
-                    View Ledger
-                  </button>
+
                 </div>
               </div>
             )}
 
             {/* Action Buttons */}
-            <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={handleExportPDF}
@@ -935,21 +749,9 @@ ${statementTransactions.slice(0, 15).map(t => `• ${t.date} | ${t.title} | ${t.
                   </>
                 )}
               </button>
-
-              <button
-                type="button"
-                onClick={handleOpenPrintPreview}
-                disabled={statementTransactions.length === 0 || isExporting}
-                className="py-3 px-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-slate-300 hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
-                title={statementTransactions.length === 0 ? "Select a timeframe with records to enable" : "Open Print dialog or Save as PDF"}
-              >
-                <Printer className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span>Print View</span>
-              </button>
             </div>
           </div>
         </div>
-      )}
     </div>
   );
 };
