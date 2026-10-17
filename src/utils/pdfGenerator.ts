@@ -400,44 +400,7 @@ export async function downloadStatementPdf(statement: StatementData, fileName: s
  * Opens print view via a hidden iframe or new window, triggering native print/save dialogs.
  */
 export function printStatementHtml(html: string): void {
-  // 1. Try hidden iframe first
-  try {
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (doc) {
-      doc.open();
-      doc.write(html);
-      doc.close();
-
-      setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } catch (e) {
-          console.error('Print iframe error:', e);
-        } finally {
-          setTimeout(() => {
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 2000);
-        }
-      }, 300);
-      return;
-    }
-  } catch (iframeErr) {
-    console.warn('Hidden iframe print failed, trying window fallback:', iframeErr);
-  }
-
-  // 2. Fallback to window.open (especially for mobile WebViews)
+  // 1. Try opening a new window (Desktop / Tablets)
   try {
     const win = window.open('', '_blank');
     if (win) {
@@ -451,9 +414,17 @@ export function printStatementHtml(html: string): void {
         } catch (e) {
           console.warn('Window print failed:', e);
         }
-      }, 300);
+      }, 350);
+      return;
     }
   } catch (winErr) {
-    console.error('Print window error:', winErr);
+    console.warn('window.open was blocked or unavailable:', winErr);
+  }
+
+  // 2. Direct top-level window.print() (works on mobile Chrome & modern browsers)
+  try {
+    window.print();
+  } catch (e) {
+    console.error('Direct window.print() failed:', e);
   }
 }

@@ -95,3 +95,33 @@ body {
   animation: shimmer 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Print styles for Financial Statements */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    background: #ffffff !important;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  #statement-printable-section,
+  #statement-printable-section * {
+    visibility: visible !important;
+  }
+  #statement-printable-section {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    display: block !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
