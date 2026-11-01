@@ -258,7 +258,7 @@ export const CloudStore = {
       const map = new Map<string, Category>();
       DEFAULT_CATEGORIES.forEach(c => map.set(c.id, c));
       parsed.forEach((c: Category) => {
-        if (c && c.id && c.id !== '__budgets_config__') {
+        if (c && c.id && !c.id.startsWith('__')) {
           map.set(c.id, c);
         }
       });

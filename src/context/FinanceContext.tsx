@@ -613,7 +613,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     // 5. Categories Merge (Union of DEFAULT_CATEGORIES, local cache, pending created, and remote snapshot)
-    const remoteCategories = (snapshot.categories || []).filter(c => c && c.id !== '__budgets_config__');
+    const remoteCategories = (snapshot.categories || []).filter(c => c && c.id && !c.id.startsWith('__'));
     const localCategories = (categoriesRef.current && categoriesRef.current.length > 0)
       ? categoriesRef.current
       : CloudStore.getCategories();
@@ -625,14 +625,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Add local (custom) categories
     localCategories.forEach(c => {
-      if (c && c.id && c.id !== '__budgets_config__') {
+      if (c && c.id && !c.id.startsWith('__')) {
         categoryMap.set(c.id, c);
       }
     });
 
     // Add remote categories (remote acknowledgment)
     remoteCategories.forEach(c => {
-      if (c && c.id && c.id !== '__budgets_config__') {
+      if (c && c.id && !c.id.startsWith('__')) {
         categoryMap.set(c.id, c);
         pendingCreatedCategoryIdsRef.current.delete(c.id);
       }

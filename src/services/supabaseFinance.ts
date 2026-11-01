@@ -299,18 +299,37 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
     createdAt: vaultRow.created_at,
   };
 
-  const { data: stateRow, error: stateError } = await client
+  let stateRow: any = null;
+  const { data: stateWithArchive, error: stateError } = await client
     .from('vault_finance_state')
     .select('transactions, goals, stocks, bills, categories, currency, archive')
     .eq('vault_id', vaultId)
     .maybeSingle();
-  if (stateError) throw stateError;
+
+  if (stateError) {
+    const isColumnMissing = stateError.code === '42703' || stateError.message?.toLowerCase().includes('archive');
+    if (isColumnMissing) {
+      console.warn('vault_finance_state.archive column not found on Supabase. Falling back to compatibility mode.');
+      const { data: stateWithoutArchive, error: fallbackError } = await client
+        .from('vault_finance_state')
+        .select('transactions, goals, stocks, bills, categories, currency')
+        .eq('vault_id', vaultId)
+        .maybeSingle();
+      if (fallbackError) throw fallbackError;
+      stateRow = stateWithoutArchive;
+    } else {
+      throw stateError;
+    }
+  } else {
+    stateRow = stateWithArchive;
+  }
 
   let snapshot: FinanceSnapshot;
   if (stateRow) {
     const rawCategories = (stateRow.categories as Category[]) || [];
     const budgetMeta = rawCategories.find(c => c.id === '__budgets_config__');
-    const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__');
+    const archiveMeta = rawCategories.find(c => c.id === '__archive_data__');
+    const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__' && c.id !== '__archive_data__');
     let parsedBudgets: BudgetsConfig = { couple: Number(vaultRow.monthly_budget) || 0, me: 0, partner: 0 };
     if (budgetMeta) {
       try {
@@ -370,7 +389,18 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
       categories: mergedCategories,
       currency: (stateRow.currency as CurrencyCode) || 'INR',
       budgets: parsedBudgets,
-      archive: (stateRow as any).archive as ArchiveData || { transactions: [], goals: [], stocks: [], bills: [] },
+      archive: (() => {
+        if (stateRow.archive && typeof stateRow.archive === 'object' && Object.keys(stateRow.archive).length > 0) {
+          return stateRow.archive as ArchiveData;
+        }
+        if (archiveMeta) {
+          try {
+            const parsed = JSON.parse(archiveMeta.name);
+            if (typeof parsed === 'object' && parsed !== null) return parsed as ArchiveData;
+          } catch {}
+        }
+        return { transactions: [], goals: [], stocks: [], bills: [] };
+      })(),
     };
   } else {
     snapshot = emptySnapshot();
@@ -389,11 +419,18 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
   }
 
   const budgetsToPersist = snapshot.budgets || { couple: 0, me: 0, partner: 0 };
+  const archiveToPersist = snapshot.archive || { transactions: [], goals: [], stocks: [], bills: [] };
   const categoriesToPersist = [
-    ...(snapshot.categories || []).filter(c => c.id !== '__budgets_config__'),
+    ...(snapshot.categories || []).filter(c => c.id !== '__budgets_config__' && c.id !== '__archive_data__'),
     {
       id: '__budgets_config__',
       name: JSON.stringify(budgetsToPersist),
+      icon: '',
+      color: '',
+    },
+    {
+      id: '__archive_data__',
+      name: JSON.stringify(archiveToPersist),
       icon: '',
       color: '',
     },
@@ -415,7 +452,7 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
     return stock;
   });
 
-  const { error } = await getSupabase().from('vault_finance_state').upsert({
+  const rowPayload: Record<string, any> = {
     vault_id: vaultId,
     transactions: cleanTxs,
     goals: snapshot.goals || [],
@@ -423,12 +460,22 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
     bills: snapshot.bills || [],
     categories: categoriesToPersist,
     currency: snapshot.currency || 'INR',
-    archive: snapshot.archive || { transactions: [], goals: [], stocks: [], bills: [] },
+    archive: archiveToPersist,
     updated_by: user.id,
     updated_at: typeof snapshot.updatedAt === 'number'
       ? new Date(snapshot.updatedAt).toISOString()
       : (typeof snapshot.updatedAt === 'string' ? snapshot.updatedAt : new Date().toISOString()),
-  }, { onConflict: 'vault_id' });
+  };
+
+  let { error } = await getSupabase().from('vault_finance_state').upsert(rowPayload, { onConflict: 'vault_id' });
+
+  // If column 'archive' does not exist in the database, retry without the 'archive' column
+  if (error && (error.code === '42703' || error.message?.toLowerCase().includes('archive'))) {
+    console.warn('vault_finance_state.archive column not found on Supabase. Saving archive inside categories metadata.');
+    const { archive, ...payloadWithoutArchive } = rowPayload;
+    const retryResult = await getSupabase().from('vault_finance_state').upsert(payloadWithoutArchive, { onConflict: 'vault_id' });
+    error = retryResult.error;
+  }
 
   if (error) {
     console.error('Supabase saveFinanceSnapshot error:', error);
@@ -447,17 +494,36 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
 }
 
 export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnapshot | null> {
-  const { data, error } = await getSupabase()
+  let data: any = null;
+  const { data: dataWithArchive, error: snapshotError } = await getSupabase()
     .from('vault_finance_state')
     .select('transactions, goals, stocks, bills, categories, currency, updated_at, archive')
     .eq('vault_id', vaultId)
     .maybeSingle();
-  if (error) throw error;
+
+  if (snapshotError) {
+    const isColumnMissing = snapshotError.code === '42703' || snapshotError.message?.toLowerCase().includes('archive');
+    if (isColumnMissing) {
+      console.warn('vault_finance_state.archive column not found on Supabase in loadFinanceSnapshot. Falling back to compatibility mode.');
+      const { data: dataWithoutArchive, error: fallbackErr } = await getSupabase()
+        .from('vault_finance_state')
+        .select('transactions, goals, stocks, bills, categories, currency, updated_at')
+        .eq('vault_id', vaultId)
+        .maybeSingle();
+      if (fallbackErr) throw fallbackErr;
+      data = dataWithoutArchive;
+    } else {
+      throw snapshotError;
+    }
+  } else {
+    data = dataWithArchive;
+  }
   if (!data) return null;
 
   const rawCategories = (data.categories as Category[]) || [];
   const budgetMeta = rawCategories.find(c => c.id === '__budgets_config__');
-  const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__');
+  const archiveMeta = rawCategories.find(c => c.id === '__archive_data__');
+  const cleanCategories = rawCategories.filter(c => c.id !== '__budgets_config__' && c.id !== '__archive_data__');
   let parsedBudgets: BudgetsConfig = { couple: 0, me: 0, partner: 0 };
   if (budgetMeta) {
     try {
@@ -507,7 +573,18 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     categories: mergedCategories,
     currency: (data.currency as CurrencyCode) || 'INR',
     budgets: parsedBudgets,
-    archive: ((data as any).archive as ArchiveData) || { transactions: [], goals: [], stocks: [], bills: [] },
+    archive: (() => {
+      if (data.archive && typeof data.archive === 'object' && Object.keys(data.archive).length > 0) {
+        return data.archive as ArchiveData;
+      }
+      if (archiveMeta) {
+        try {
+          const parsed = JSON.parse(archiveMeta.name);
+          if (typeof parsed === 'object' && parsed !== null) return parsed as ArchiveData;
+        } catch {}
+      }
+      return { transactions: [], goals: [], stocks: [], bills: [] };
+    })(),
     updatedAt: (data as any).updated_at ? new Date((data as any).updated_at).getTime() : undefined,
   };
 }
