@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { X, Camera, Link2, Heart, ShieldCheck, LogOut, User, RotateCcw } from 'lucide-react';
+import { X, Camera, Link2, Heart, ShieldCheck, LogOut, User, RotateCcw, Database, Upload } from 'lucide-react';
 import { compressAvatarImage } from '../../utils/imageCompressor';
 import { ClearAmountsConfirmModal } from '../common/ClearAmountsConfirmModal';
+import { BackupExportModal } from '../common/BackupExportModal';
+import { RestoreBackupModal } from '../common/RestoreBackupModal';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -22,6 +24,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [name, setName] = useState(currentUser?.name ?? '');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? AVATAR_PRESETS[0]);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isBackupExportOpen, setIsBackupExportOpen] = useState(false);
+  const [isRestoreOpen, setIsRestoreOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -135,6 +139,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </div>
         )}
 
+        {/* Data Safety, Cloud Backup & Restore */}
+        <div className="mt-6 pt-5 border-t border-white/10 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-teal-400" />
+              <h3 className="text-sm font-bold text-white">Data Safety & Cloud Backups</h3>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 font-semibold flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3" /> Protected
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Export JSON database backups, download CSV spreadsheets for custom time ranges (7 days, 1 month, 3 months, or all time), or restore past backups.
+          </p>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setIsBackupExportOpen(true)}
+              className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Export & Backup</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRestoreOpen(true)}
+              className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 hover:text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+            >
+              <Upload className="w-3.5 h-3.5 text-teal-400" />
+              <span>Restore Data</span>
+            </button>
+          </div>
+        </div>
+
         {/* Start From Scratch / Reset All Amounts */}
         <div className="mt-6 pt-5 border-t border-white/10 space-y-2.5">
           <div className="flex items-center justify-between">
@@ -172,6 +210,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       <ClearAmountsConfirmModal
         isOpen={isResetModalOpen}
         onClose={() => setIsResetModalOpen(false)}
+      />
+
+      <BackupExportModal
+        isOpen={isBackupExportOpen}
+        onClose={() => setIsBackupExportOpen(false)}
+        onOpenRestore={() => setIsRestoreOpen(true)}
+      />
+
+      <RestoreBackupModal
+        isOpen={isRestoreOpen}
+        onClose={() => setIsRestoreOpen(false)}
+        onOpenExport={() => setIsBackupExportOpen(true)}
       />
     </div>
   );

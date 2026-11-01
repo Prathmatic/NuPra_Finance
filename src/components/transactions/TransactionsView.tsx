@@ -14,13 +14,15 @@ import {
   Target,
   CheckSquare,
   Square,
-  Check
+  Check,
+  Database
 } from 'lucide-react';
 import { formatCurrency, formatDate, getGoalSavingsTitle } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
 import { MonthNavigator } from '../common/MonthNavigator';
 import { EditTransactionModal } from './EditTransactionModal';
 import { ExportStatementModal } from './ExportStatementModal';
+import { BackupExportModal } from '../common/BackupExportModal';
 import { TransactionActivityDrawer } from './TransactionActivityDrawer';
 import { Transaction } from '../../types/finance';
 import { UserAvatar } from '../common/UserAvatar';
@@ -37,6 +39,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
     currentUser, 
     partner, 
     deleteTransaction,
+    bulkDeleteTransactions,
     toggleFlagTransaction,
     selectedMonth 
   } = useFinance();
@@ -52,6 +55,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
@@ -74,7 +78,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
 
   const handleBulkDelete = () => {
     if (selectedTxIds.size === 0) return;
-    selectedTxIds.forEach(id => deleteTransaction(id));
+    bulkDeleteTransactions(Array.from(selectedTxIds));
     setSelectedTxIds(new Set());
     setIsSelectMode(false);
   };
@@ -209,11 +213,20 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
 
           <button
             onClick={() => setIsExportOpen(true)}
-            className="p-2 px-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-indigo-300 hover:text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+            className="p-2 px-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-indigo-300 hover:text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
             title="Export bank statement (CSV or PDF)"
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Statement</span>
+          </button>
+
+          <button
+            onClick={() => setIsBackupModalOpen(true)}
+            className="p-2 px-2.5 rounded-xl bg-gradient-to-r from-teal-500/20 to-indigo-500/20 hover:from-teal-500/30 hover:to-indigo-500/30 border border-teal-500/30 text-teal-300 hover:text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+            title="Full Database Backup & Custom Range Export"
+          >
+            <Database className="w-3.5 h-3.5 text-teal-400" />
+            <span className="hidden sm:inline">Backup</span>
           </button>
 
           <button
@@ -553,6 +566,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
       <ExportStatementModal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
+      />
+
+      {/* Backup & Data Export Center Modal */}
+      <BackupExportModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
       />
 
       {/* Floating Bulk Actions Bar */}

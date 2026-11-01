@@ -44,6 +44,13 @@ import {
   convertEurToInr, 
   convertInrToEur 
 } from '../utils/formatters';
+import { 
+  recordDeletedItems, 
+  recordResetArchive, 
+  createManualVaultBackup, 
+  restoreBackupDataToSnapshot, 
+  BackupExportPayload 
+} from '../services/backupService';
 
 interface FinanceContextType {
   currentUser: UserProfile | null;
@@ -105,8 +112,13 @@ interface FinanceContextType {
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
   updateTransaction: (tx: Transaction) => void;
   deleteTransaction: (id: string) => void;
+  bulkDeleteTransactions: (ids: string[]) => void;
   toggleFlagTransaction: (transactionId: string) => void;
   addTransactionComment: (transactionId: string, text: string) => void;
+
+  // Backups & Restore
+  restoreFromBackup: (backupPayload: BackupExportPayload, mode: 'merge' | 'replace') => Promise<void>;
+  createManualBackup: (title?: string) => Promise<boolean>;
 
   // Category Actions
   addCategory: (cat: Omit<Category, 'id'>) => string;
@@ -1197,6 +1209,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   /* ─── Clear All Amounts to 0 (Start From Scratch) ─────────────────────── */
   const clearAllAmountsToZero = useCallback(async () => {
+    // 0. Auto-archive snapshot backup before zeroing so historical data is never lost
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (activeVault?.id) {
+      const preResetSnapshot: FinanceSnapshot = {
+        transactions: transactionsRef.current || [],
+        goals: goalsRef.current || [],
+        bills: billsRef.current || [],
+        stocks: stocksRef.current || [],
+        categories: categoriesRef.current || [],
+        budgets: budgetsRef.current,
+        currency: currencyRef.current,
+        updatedAt: Date.now(),
+      };
+      void recordResetArchive(activeVault.id, preResetSnapshot, currentUserRef.current);
+    }
+
     // 1. Transactions: reset to []
     const updatedTxs: Transaction[] = [];
 
@@ -1213,9 +1241,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }));
 
     // 3. Bills: delete goal-based bills entirely (they are created from goals), keep other bills but reset amounts
-    // Also add tombstones for all bills so remote syncs won't resurrect them
+    // Only tombstone goal-based bills (which are truly deleted)
     const allBills = billsRef.current || [];
-    allBills.forEach(b => { if (b?.id) deletedBillIdsRef.current.add(b.id); });
+    allBills.filter(b => b.isGoalBased).forEach(b => { if (b?.id) deletedBillIdsRef.current.add(b.id); });
     pendingCreatedBillIdsRef.current.clear();
     const updatedBills: BillItem[] = allBills
       .filter(b => !b.isGoalBased)
@@ -1239,7 +1267,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // 5. Bank balances: both partners set to 0
     const currentUserId = currentUserRef.current?.id;
-    const activeVault = vaultRef.current || CloudStore.getVault();
     const partnerId = partner?.id || (activeVault?.partner1?.id === currentUserId ? activeVault?.partner2?.id : activeVault?.partner1?.id);
 
     const clearedBankBalances: Record<string, number> = {};
@@ -1433,6 +1460,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       return;
     }
 
+    // Preserve in database backup archive before deleting
+    if (existing) {
+      const activeVault = vaultRef.current || CloudStore.getVault();
+      if (activeVault?.id) {
+        void recordDeletedItems(activeVault.id, 'transaction', [existing], currentUser);
+      }
+    }
+
     pendingCreatedTxIdsRef.current.delete(id);
     deletedTxIdsRef.current.add(id);
     const updated = (transactionsRef.current || []).filter(t => t.id !== id);
@@ -1443,6 +1478,43 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ transactions: updated });
     showToast('Transaction removed', 'info');
+  };
+
+  const bulkDeleteTransactions = (ids: string[]) => {
+    if (!currentUser || !ids.length) return;
+    const targetSet = new Set(ids);
+    const deletedItems: Transaction[] = [];
+
+    const updated = (transactionsRef.current || []).filter(t => {
+      if (targetSet.has(t.id)) {
+        if (t.userId === currentUser.id) {
+          deletedItems.push(t);
+          pendingCreatedTxIdsRef.current.delete(t.id);
+          deletedTxIdsRef.current.add(t.id);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (!deletedItems.length) {
+      showToast('No eligible transactions to delete', 'info');
+      return;
+    }
+
+    // Preserve in database backup archive
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (activeVault?.id) {
+      void recordDeletedItems(activeVault.id, 'transaction', deletedItems, currentUser);
+    }
+
+    transactionsRef.current = updated;
+    setTransactions(updated);
+    CloudStore.saveTransactions(updated);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ transactions: updated });
+    showToast(`Removed ${deletedItems.length} transaction(s)`, 'info');
   };
 
   const toggleFlagTransaction = (transactionId: string) => {
@@ -1624,6 +1696,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     ) {
       showToast("You cannot delete your partner's personal goal", 'error');
       return;
+    }
+
+    // Preserve in database backup archive before deleting
+    if (existing) {
+      const activeVault = vaultRef.current || CloudStore.getVault();
+      if (activeVault?.id) {
+        void recordDeletedItems(activeVault.id, 'goal', [existing], currentUser);
+      }
     }
 
     pendingCreatedGoalIdsRef.current.delete(id);
@@ -1889,6 +1969,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (existing && existing.userId !== currentUser.id) {
       showToast("You cannot delete your partner's stock investment", 'error');
       return;
+    }
+
+    // Preserve in database backup archive before deleting
+    if (existing) {
+      const activeVault = vaultRef.current || CloudStore.getVault();
+      if (activeVault?.id) {
+        void recordDeletedItems(activeVault.id, 'stock', [existing], currentUser);
+      }
     }
 
     pendingCreatedStockIdsRef.current.delete(id);
@@ -2282,6 +2370,15 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteBill = (id: string) => {
     const billToDelete = (billsRef.current || []).find(b => b.id === id);
+
+    // Preserve in database backup archive before deleting
+    if (billToDelete) {
+      const activeVault = vaultRef.current || CloudStore.getVault();
+      if (activeVault?.id) {
+        void recordDeletedItems(activeVault.id, 'bill', [billToDelete], currentUser);
+      }
+    }
+
     pendingCreatedBillIdsRef.current.delete(id);
     deletedBillIdsRef.current.add(id);
     const updatedBills = (billsRef.current || []).filter(b => b.id !== id);
@@ -2379,6 +2476,100 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast(`Note for ${monthKey} saved`, 'success');
   }, [triggerSyncFlash, pushToCloud, showToast]);
 
+  /* ─── Backup & Restore Handlers ───────────────────────────────────────── */
+  const restoreFromBackup = useCallback(async (backupPayload: BackupExportPayload, mode: 'merge' | 'replace') => {
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (!activeVault?.id) {
+      showToast('Vault not found. Please sign in to restore.', 'error');
+      return;
+    }
+
+    try {
+      // 1. Automatically take an emergency backup of the current state before restoring!
+      const currentSnapshot: FinanceSnapshot = {
+        transactions: transactionsRef.current || [],
+        goals: goalsRef.current || [],
+        bills: billsRef.current || [],
+        stocks: stocksRef.current || [],
+        categories: categoriesRef.current || [],
+        budgets: budgetsRef.current,
+        currency: currencyRef.current,
+        updatedAt: Date.now(),
+      };
+      void recordResetArchive(activeVault.id, currentSnapshot, currentUserRef.current);
+
+      // 2. Compute restored state
+      const restored = restoreBackupDataToSnapshot(backupPayload, currentSnapshot, mode);
+
+      // 3. Clear tombstone sets for restored IDs so remote polls won't discard them
+      restored.transactions.forEach((t: Transaction) => deletedTxIdsRef.current.delete(t.id));
+      restored.bills.forEach((b: BillItem) => deletedBillIdsRef.current.delete(b.id));
+      restored.goals.forEach((g: FinanceGoal) => deletedGoalIdsRef.current.delete(g.id));
+      restored.stocks.forEach((s: StockInvestment) => deletedStockIdsRef.current.delete(s.id));
+
+      // 4. Update in-memory state and sync refs
+      setTransactions(restored.transactions);
+      setBills(restored.bills);
+      setGoals(restored.goals);
+      setStocks(restored.stocks);
+      if (restored.budgets) setBudgets(restored.budgets);
+      if (restored.categories) setCategories(restored.categories);
+
+      transactionsRef.current = restored.transactions;
+      billsRef.current = restored.bills;
+      goalsRef.current = restored.goals;
+      stocksRef.current = restored.stocks;
+      if (restored.budgets) budgetsRef.current = restored.budgets;
+      if (restored.categories) categoriesRef.current = restored.categories;
+      lastLocalWriteTimeRef.current = Date.now();
+
+      // 5. Persist locally to CloudStore
+      CloudStore.saveTransactions(restored.transactions);
+      CloudStore.saveBills(restored.bills);
+      CloudStore.saveGoals(restored.goals);
+      CloudStore.saveStocks(restored.stocks);
+      if (restored.budgets) CloudStore.saveBudgets(restored.budgets);
+      if (restored.categories) CloudStore.saveCategories(restored.categories);
+
+      triggerSyncFlash();
+
+      // 6. Push to Supabase and WebSocket broadcast
+      await pushToCloud(restored);
+
+      showToast(`Restored successfully (${restored.transactions.length} txs, ${restored.bills.length} bills, ${restored.goals.length} goals)`, 'success');
+    } catch (err: any) {
+      console.error('Failed to restore from backup:', err);
+      showToast(`Restore failed: ${err.message || 'Unknown error'}`, 'error');
+    }
+  }, [pushToCloud, showToast, triggerSyncFlash]);
+
+  const createManualBackup = useCallback(async (title = 'Manual Vault Backup') => {
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (!activeVault?.id) {
+      showToast('Cannot create backup: No active vault found', 'error');
+      return false;
+    }
+
+    const currentSnapshot: FinanceSnapshot = {
+      transactions: transactionsRef.current || [],
+      goals: goalsRef.current || [],
+      bills: billsRef.current || [],
+      stocks: stocksRef.current || [],
+      categories: categoriesRef.current || [],
+      budgets: budgetsRef.current,
+      currency: currencyRef.current,
+      updatedAt: Date.now(),
+    };
+
+    const success = await createManualVaultBackup(activeVault.id, currentSnapshot, title, currentUserRef.current);
+    if (success) {
+      showToast('Cloud backup saved successfully! ☁️', 'success');
+    } else {
+      showToast('Backup saved locally (cloud sync scheduled)', 'info');
+    }
+    return success;
+  }, [showToast]);
+
   return (
     <FinanceContext.Provider
       value={{
@@ -2403,8 +2594,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         signOut: handleSignOut,
         setActiveTab, setViewMode, setCurrency,
         updateCurrentUserProfile,
-        addTransaction, updateTransaction, deleteTransaction,
+        addTransaction, updateTransaction, deleteTransaction, bulkDeleteTransactions,
         toggleFlagTransaction, addTransactionComment,
+        restoreFromBackup, createManualBackup,
         addCategory,
         addGoal, updateGoal, contributeToGoal, deleteGoal, flagGoal, addGoalComment,
         requestGoalChange, approveGoalChange, rejectGoalChange, cancelGoalChange,

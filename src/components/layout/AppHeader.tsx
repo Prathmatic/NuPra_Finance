@@ -6,12 +6,15 @@ import {
   Settings, 
   ChevronDown,
   RefreshCw,
-  Bell
+  Bell,
+  Database
 } from 'lucide-react';
 import { NPIcon } from '../common/NPIcon';
 import { CurrencyConverterModal } from '../common/CurrencyConverterModal';
 import { UserAvatar } from '../common/UserAvatar';
 import { ActivityNotificationDrawer } from './ActivityNotificationDrawer';
+import { BackupExportModal } from '../common/BackupExportModal';
+import { RestoreBackupModal } from '../common/RestoreBackupModal';
 
 interface AppHeaderProps {
   onOpenProfile: () => void;
@@ -38,6 +41,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isConverterOpen, setIsConverterOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isBackupExportOpen, setIsBackupExportOpen] = useState(false);
+  const [isRestoreOpen, setIsRestoreOpen] = useState(false);
 
   const unreadCount = notifications?.filter(n => !n.read).length || 0;
 
@@ -188,10 +193,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
                     </div>
                   )}
 
-                  <div className="pt-1">
+                  <div className="pt-1 space-y-0.5">
+                    <button
+                      onClick={() => { setIsUserMenuOpen(false); setIsBackupExportOpen(true); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-white/10 transition-all text-left cursor-pointer"
+                    >
+                      <Database className="w-4 h-4 text-teal-400" />
+                      <span>Backup & Export Data</span>
+                    </button>
                     <button
                       onClick={() => { setIsUserMenuOpen(false); onOpenProfile(); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-white/10 transition-all text-left"
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-white/10 transition-all text-left cursor-pointer"
                     >
                       <Settings className="w-4 h-4 text-indigo-400" />
                       <span>Profile & Settings</span>
@@ -256,6 +268,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
       <ActivityNotificationDrawer
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
+      />
+
+      <BackupExportModal
+        isOpen={isBackupExportOpen}
+        onClose={() => setIsBackupExportOpen(false)}
+        onOpenRestore={() => setIsRestoreOpen(true)}
+      />
+
+      <RestoreBackupModal
+        isOpen={isRestoreOpen}
+        onClose={() => setIsRestoreOpen(false)}
+        onOpenExport={() => setIsBackupExportOpen(true)}
       />
     </header>
   );
