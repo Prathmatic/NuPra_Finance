@@ -53,35 +53,35 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
     >
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
         {/* App Brand with NP Monogram */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <button
             type="button"
             onClick={onReplaySplash}
             title="Replay NP Intro Animation"
-            className="hover:scale-105 active:scale-95 transition-transform cursor-pointer rounded-2xl focus:outline-none"
+            className="hover:scale-105 active:scale-95 transition-transform cursor-pointer rounded-2xl focus:outline-none shrink-0"
           >
             <NPIcon size="md" />
           </button>
-          <div className="flex items-center gap-2">
-            <h1 className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent truncate">
               NuPra Finance
             </h1>
             {isSyncing && (
-              <span title="Syncing with cloud">
-                <RefreshCw className="w-3 h-3 animate-spin text-emerald-400 shrink-0" />
+              <span title="Syncing with cloud" className="shrink-0">
+                <RefreshCw className="w-3 h-3 animate-spin text-emerald-400" />
               </span>
             )}
           </div>
         </div>
 
         {/* Currency & Profile */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Live Rate Pill */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Live Rate Pill — hidden on xs to keep room for bell + avatar */}
           <button
             type="button"
             onClick={() => setIsConverterOpen(true)}
             title="Live European Central Bank Rate: Tap to open Currency Converter"
-            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-xs font-semibold text-slate-200 transition-all active:scale-95 group cursor-pointer"
+            className="hidden sm:flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-xs font-semibold text-slate-200 transition-all active:scale-95 group cursor-pointer shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 group-hover:scale-125 transition-transform" />
             <span className="text-[10px] sm:text-[11px] font-bold text-teal-300 whitespace-nowrap">

@@ -1279,22 +1279,18 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
     }
 
-    // Set tombstones for all existing data so remote snapshot polls won't resurrect them
+    // Tombstone only transactions (they are truly wiped to []).
+    // Goals, bills, and stocks are zeroed in-place — NOT deleted — so their IDs must
+    // NOT be added to the deleted sets, otherwise the next background sync poll will
+    // filter them out and they will silently disappear from the UI after a refresh.
     (transactionsRef.current || []).forEach(t => {
       if (t?.id) deletedTxIdsRef.current.add(t.id);
     });
     pendingCreatedTxIdsRef.current.clear();
-    (goalsRef.current || []).forEach(g => {
-      if (g?.id) deletedGoalIdsRef.current.add(g.id);
-    });
+    // Clear any stale pending-created flags for goals/bills/stocks so the next push
+    // treats them as updates, not new creates.
     pendingCreatedGoalIdsRef.current.clear();
-    allBills.forEach(b => {
-      if (b?.id) deletedBillIdsRef.current.add(b.id);
-    });
     pendingCreatedBillIdsRef.current.clear();
-    (stocksRef.current || []).forEach(s => {
-      if (s?.id) deletedStockIdsRef.current.add(s.id);
-    });
     pendingCreatedStockIdsRef.current.clear();
 
     // Update in-memory state
