@@ -9,6 +9,7 @@ import type {
   Transaction,
   UserProfile,
   BudgetsConfig,
+  ArchiveData,
 } from '../types/finance';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 import { getSupabase } from './supabaseClient';
@@ -22,6 +23,7 @@ export interface FinanceSnapshot {
   categories: Category[];
   currency: CurrencyCode;
   budgets?: BudgetsConfig;
+  archive?: ArchiveData;
   updatedAt?: number | string;
 }
 
@@ -51,6 +53,7 @@ const emptySnapshot = (): FinanceSnapshot => ({
   categories: DEFAULT_CATEGORIES,
   currency: 'INR',
   budgets: { couple: 0, me: 0, partner: 0 },
+  archive: { transactions: [], goals: [], stocks: [], bills: [] },
 });
 
 const toProfile = (row: any, vaultId = ''): UserProfile => {
@@ -298,7 +301,7 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
 
   const { data: stateRow, error: stateError } = await client
     .from('vault_finance_state')
-    .select('transactions, goals, stocks, bills, categories, currency')
+    .select('transactions, goals, stocks, bills, categories, currency, archive')
     .eq('vault_id', vaultId)
     .maybeSingle();
   if (stateError) throw stateError;
@@ -367,6 +370,7 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
       categories: mergedCategories,
       currency: (stateRow.currency as CurrencyCode) || 'INR',
       budgets: parsedBudgets,
+      archive: (stateRow as any).archive as ArchiveData || { transactions: [], goals: [], stocks: [], bills: [] },
     };
   } else {
     snapshot = emptySnapshot();
@@ -419,6 +423,7 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
     bills: snapshot.bills || [],
     categories: categoriesToPersist,
     currency: snapshot.currency || 'INR',
+    archive: snapshot.archive || { transactions: [], goals: [], stocks: [], bills: [] },
     updated_by: user.id,
     updated_at: typeof snapshot.updatedAt === 'number'
       ? new Date(snapshot.updatedAt).toISOString()
@@ -444,7 +449,7 @@ export async function saveFinanceSnapshot(vaultId: string, snapshot: FinanceSnap
 export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnapshot | null> {
   const { data, error } = await getSupabase()
     .from('vault_finance_state')
-    .select('transactions, goals, stocks, bills, categories, currency, updated_at')
+    .select('transactions, goals, stocks, bills, categories, currency, updated_at, archive')
     .eq('vault_id', vaultId)
     .maybeSingle();
   if (error) throw error;
@@ -502,6 +507,7 @@ export async function loadFinanceSnapshot(vaultId: string): Promise<FinanceSnaps
     categories: mergedCategories,
     currency: (data.currency as CurrencyCode) || 'INR',
     budgets: parsedBudgets,
+    archive: ((data as any).archive as ArchiveData) || { transactions: [], goals: [], stocks: [], bills: [] },
     updatedAt: (data as any).updated_at ? new Date((data as any).updated_at).getTime() : undefined,
   };
 }

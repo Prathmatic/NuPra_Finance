@@ -16,9 +16,10 @@ import {
   HandCoins,
   ArrowUpRight,
   ArrowDownLeft,
-  Target,
   Edit2,
-  Sparkles
+  Sparkles,
+  Target,
+  Archive
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { calculateSplitwiseBalance, getBillSplitInfo } from '../../utils/splitwise';
@@ -27,7 +28,11 @@ import { AddBillModal } from './AddBillModal';
 import { EditBillModal } from './EditBillModal';
 import { SettleUpModal } from './SettleUpModal';
 
-export const BillsView: React.FC = () => {
+interface BillsViewProps {
+  onOpenArchive?: () => void;
+}
+
+export const BillsView: React.FC<BillsViewProps> = ({ onOpenArchive }) => {
   const { 
     bills, 
     currency, 
@@ -35,7 +40,8 @@ export const BillsView: React.FC = () => {
     partner, 
     markBillAsPaid, 
     deleteBill,
-    settleBill 
+    settleBill,
+    archive
   } = useFinance();
 
   const [tab, setTab] = useState<'all' | 'unpaid' | 'paid' | 'debts'>('all');
@@ -191,54 +197,68 @@ export const BillsView: React.FC = () => {
         </div>
       )}
 
-      {/* Filter Tabs */}
-      <div className="flex p-1 rounded-2xl bg-slate-900/90 border border-white/10 text-xs font-semibold overflow-x-auto no-scrollbar">
-        <button
-          onClick={() => setTab('all')}
-          className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-xl transition-all text-center ${
-            tab === 'all'
-              ? 'bg-white text-slate-900 shadow-md font-bold'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          All ({bills.length})
-        </button>
+      {/* Filter Tabs & Archive Badge */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex-1 flex p-1 rounded-2xl bg-slate-900/90 border border-white/10 text-xs font-semibold overflow-x-auto no-scrollbar">
+          <button
+            onClick={() => setTab('all')}
+            className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-xl transition-all text-center ${
+              tab === 'all'
+                ? 'bg-white text-slate-900 shadow-md font-bold'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            All ({bills.length})
+          </button>
 
-        <button
-          onClick={() => setTab('unpaid')}
-          className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
-            tab === 'unpaid'
-              ? 'bg-orange-600 text-white shadow-md font-bold'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <Clock className="w-3 h-3" />
-          <span>Due ({unpaidBills.length})</span>
-        </button>
+          <button
+            onClick={() => setTab('unpaid')}
+            className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
+              tab === 'unpaid'
+                ? 'bg-orange-600 text-white shadow-md font-bold'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>Due ({unpaidBills.length})</span>
+          </button>
 
-        <button
-          onClick={() => setTab('paid')}
-          className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
-            tab === 'paid'
-              ? 'bg-emerald-600 text-white shadow-md font-bold'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <CheckCircle className="w-3 h-3" />
-          <span>Paid ({paidBills.length})</span>
-        </button>
+          <button
+            onClick={() => setTab('paid')}
+            className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
+              tab === 'paid'
+                ? 'bg-emerald-600 text-white shadow-md font-bold'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <CheckCircle className="w-3 h-3" />
+            <span>Paid ({paidBills.length})</span>
+          </button>
 
-        <button
-          onClick={() => setTab('debts')}
-          className={`flex-1 min-w-[90px] py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
-            tab === 'debts'
-              ? 'bg-indigo-600 text-white shadow-md font-bold'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          <HandCoins className="w-3 h-3" />
-          <span>Unsettled ({debtBills.length})</span>
-        </button>
+          <button
+            onClick={() => setTab('debts')}
+            className={`flex-1 min-w-[90px] py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1 ${
+              tab === 'debts'
+                ? 'bg-indigo-600 text-white shadow-md font-bold'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <HandCoins className="w-3 h-3" />
+            <span>Unsettled ({debtBills.length})</span>
+          </button>
+        </div>
+
+        {archive.bills?.length > 0 && onOpenArchive && (
+          <button
+            onClick={onOpenArchive}
+            className="flex items-center gap-1 text-[11px] px-2.5 py-2 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/25 font-semibold transition-all shrink-0 active:scale-95"
+            title="View archived bills"
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Archived</span>
+            <span>({archive.bills.length})</span>
+          </button>
+        )}
       </div>
 
       {/* Bills List */}

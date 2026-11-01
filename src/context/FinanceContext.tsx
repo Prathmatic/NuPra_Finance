@@ -16,7 +16,11 @@ import {
   BudgetsConfig,
   MonthlyBudgetRecord,
   TransactionComment,
-  ActivityNotification
+  ActivityNotification,
+  ArchiveData,
+  ArchivedItem,
+  ArchiveItemType,
+  ARCHIVE_RETENTION_DAYS
 } from '../types/finance';
 import { CloudStore } from '../services/cloudSync';
 import {
@@ -72,7 +76,7 @@ interface FinanceContextType {
 
   // Toast notifications
   toast: ToastMessage | null;
-  showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
+  showToast: (message: string, type?: 'success' | 'info' | 'error', action?: { label: string; onClick: () => void }) => void;
   dismissToast: () => void;
 
   // Month navigation
@@ -160,9 +164,38 @@ interface FinanceContextType {
   clearCustomExchangeRate: () => void;
   convertToDisplay: (amountInEur: number) => number;
   convertInputToBase: (amountInInput: number) => number;
+
+  // Archive / Trash
+  archive: ArchiveData;
+  archiveCount: number;
+  restoreFromArchive: (type: ArchiveItemType, id: string) => void;
+  permanentDeleteFromArchive: (type: ArchiveItemType, id: string) => void;
+  emptyArchive: (type?: ArchiveItemType) => void;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
+
+function purgeExpiredItems(data: ArchiveData): { cleaned: ArchiveData; purgedCount: number } {
+  const now = new Date().toISOString();
+  const isExpired = (item: ArchivedItem<any>) => item.expiresAt && item.expiresAt <= now;
+  const tClean = (data.transactions || []).filter(i => !isExpired(i));
+  const gClean = (data.goals || []).filter(i => !isExpired(i));
+  const sClean = (data.stocks || []).filter(i => !isExpired(i));
+  const bClean = (data.bills || []).filter(i => !isExpired(i));
+  const purgedCount = ((data.transactions?.length || 0) - tClean.length) +
+                      ((data.goals?.length || 0) - gClean.length) +
+                      ((data.stocks?.length || 0) - sClean.length) +
+                      ((data.bills?.length || 0) - bClean.length);
+  return {
+    cleaned: {
+      transactions: tClean,
+      goals: gClean,
+      stocks: sClean,
+      bills: bClean,
+    },
+    purgedCount,
+  };
+}
 
 const emptySnapshot = (): FinanceSnapshot => ({
   transactions: [],
@@ -172,6 +205,7 @@ const emptySnapshot = (): FinanceSnapshot => ({
   categories: CloudStore.getCategories(),
   currency: 'INR',
   budgets: { couple: 0, me: 0, partner: 0 },
+  archive: CloudStore.getArchive(),
 });
 
 const createRecordId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -191,6 +225,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     return CloudStore.getUserCurrency(currentSavedUser?.id);
   });
   const [budgets, setBudgets] = useState<BudgetsConfig>(() => CloudStore.getBudgets());
+  const [archive, setArchive] = useState<ArchiveData>(() => CloudStore.getArchive());
 
   // Exchange rate state (EUR -> INR) with synchronous global sync
   const [exchangeRateData, setExchangeRateData] = useState<ExchangeRateData>(() => {
@@ -214,6 +249,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const categoriesRef = useRef<Category[]>(categories);
   const currencyRef = useRef<CurrencyCode>(currency);
   const budgetsRef = useRef<BudgetsConfig>(budgets);
+  const archiveRef = useRef<ArchiveData>(archive);
   const vaultRef = useRef<CoupleVault | null>(vault);
   const currentUserRef = useRef<UserProfile | null>(currentUser);
   const lastLocalWriteTimeRef = useRef<number>(0);
@@ -246,8 +282,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   useEffect(() => { categoriesRef.current = categories; }, [categories]);
   useEffect(() => { currencyRef.current = currency; }, [currency]);
   useEffect(() => { budgetsRef.current = budgets; }, [budgets]);
+  useEffect(() => { archiveRef.current = archive; }, [archive]);
   useEffect(() => { vaultRef.current = vault; }, [vault]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
+  const archiveCount = useMemo(() => {
+    return (archive.transactions?.length || 0) +
+           (archive.goals?.length || 0) +
+           (archive.stocks?.length || 0) +
+           (archive.bills?.length || 0);
+  }, [archive]);
 
   // Global month/year filter (defaults to current month: YYYY-MM)
   const [selectedMonth, setSelectedMonth] = useState<string>(() => 
@@ -332,8 +376,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
   }, []);
 
-  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success') => {
-    setToast({ id: `${Date.now()}-${Math.random()}`, message, type });
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'success', action?: { label: string; onClick: () => void }) => {
+    setToast({ id: `${Date.now()}-${Math.random()}`, message, type, action });
   }, []);
 
   const dismissToast = useCallback(() => {
@@ -419,7 +463,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       bills: overrides?.bills ?? billsRef.current,
       categories: overrides?.categories ?? categoriesRef.current,
       currency: overrides?.currency ?? currencyRef.current,
-      budgets: budgetsToSave,
+      budgets: overrides?.budgets ?? budgetsToSave,
+      archive: overrides?.archive ?? archiveRef.current,
       updatedAt: now,
     };
     lastAppliedSnapshotTimestampRef.current = now;
@@ -712,6 +757,38 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setBudgets(loadedBudgets);
     budgetsRef.current = loadedBudgets;
 
+    // 8. Archive Merge & Auto-Purge expired items (> 365 days)
+    const remoteArchive = snapshot.archive || { transactions: [], goals: [], stocks: [], bills: [] };
+    const localArchive = archiveRef.current || CloudStore.getArchive();
+
+    const mergeArchiveArray = <T extends { id: string }>(
+      remoteArr: ArchivedItem<T>[] = [],
+      localArr: ArchivedItem<T>[] = []
+    ): ArchivedItem<T>[] => {
+      const map = new Map<string, ArchivedItem<T>>();
+      [...(localArr || []), ...(remoteArr || [])].forEach(item => {
+        if (!item || !item.item?.id) return;
+        const existing = map.get(item.item.id);
+        if (!existing || new Date(item.deletedAt).getTime() >= new Date(existing.deletedAt).getTime()) {
+          map.set(item.item.id, item);
+        }
+      });
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime()
+      );
+    };
+
+    const mergedRawArchive: ArchiveData = {
+      transactions: mergeArchiveArray(remoteArchive.transactions, localArchive.transactions),
+      goals: mergeArchiveArray(remoteArchive.goals, localArchive.goals),
+      stocks: mergeArchiveArray(remoteArchive.stocks, localArchive.stocks),
+      bills: mergeArchiveArray(remoteArchive.bills, localArchive.bills),
+    };
+
+    const { cleaned: mergedArchive } = purgeExpiredItems(mergedRawArchive);
+    setArchive(mergedArchive);
+    archiveRef.current = mergedArchive;
+
     // Persist to local cache immediately
     CloudStore.saveTransactions(cleanedMergedTxs);
     CloudStore.saveGoals(mergedGoals);
@@ -720,6 +797,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     CloudStore.saveCategories(validCategories);
     CloudStore.saveUserCurrency(resolvedCurrency, currentUserId);
     CloudStore.saveBudgets(loadedBudgets);
+    CloudStore.saveArchive(mergedArchive);
 
     if (cleanedMergedTxs.length !== mergedTxs.length) {
       void pushToCloud({ transactions: cleanedMergedTxs });
@@ -1459,6 +1537,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       showToast('You cannot delete transactions created by your partner', 'error');
       return;
     }
+    if (!existing) return;
 
     // Preserve in database backup archive before deleting
     if (existing) {
@@ -1474,10 +1553,31 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     transactionsRef.current = updated;
     setTransactions(updated);
     CloudStore.saveTransactions(updated);
+
+    const expiresAt = new Date(Date.now() + ARCHIVE_RETENTION_DAYS * 86400000).toISOString();
+    const archived: ArchivedItem<Transaction> = {
+      item: existing,
+      deletedAt: new Date().toISOString(),
+      deletedByUserId: currentUser.id,
+      deletedByUserName: currentUser.name,
+      expiresAt,
+      type: 'transaction',
+    };
+    const updatedArchive: ArchiveData = {
+      ...archiveRef.current,
+      transactions: [archived, ...(archiveRef.current.transactions || []).filter(a => a.item.id !== id)],
+    };
+    archiveRef.current = updatedArchive;
+    setArchive(updatedArchive);
+    CloudStore.saveArchive(updatedArchive);
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ transactions: updated });
-    showToast('Transaction removed', 'info');
+    void pushToCloud({ transactions: updated, archive: updatedArchive });
+    showToast('Transaction moved to Archive', 'info', {
+      label: 'Undo',
+      onClick: () => restoreFromArchive('transaction', id),
+    });
   };
 
   const bulkDeleteTransactions = (ids: string[]) => {
@@ -1697,6 +1797,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       showToast("You cannot delete your partner's personal goal", 'error');
       return;
     }
+    if (!existing) return;
 
     // Preserve in database backup archive before deleting
     if (existing) {
@@ -1712,10 +1813,31 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setGoals(updated);
     goalsRef.current = updated;
     CloudStore.saveGoals(updated);
+
+    const expiresAt = new Date(Date.now() + ARCHIVE_RETENTION_DAYS * 86400000).toISOString();
+    const archived: ArchivedItem<FinanceGoal> = {
+      item: existing,
+      deletedAt: new Date().toISOString(),
+      deletedByUserId: currentUser.id,
+      deletedByUserName: currentUser.name,
+      expiresAt,
+      type: 'goal',
+    };
+    const updatedArchive: ArchiveData = {
+      ...archiveRef.current,
+      goals: [archived, ...(archiveRef.current.goals || []).filter(a => a.item.id !== id)],
+    };
+    archiveRef.current = updatedArchive;
+    setArchive(updatedArchive);
+    CloudStore.saveArchive(updatedArchive);
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ goals: updated });
-    showToast('Goal removed', 'info');
+    void pushToCloud({ goals: updated, archive: updatedArchive });
+    showToast('Goal moved to Archive', 'info', {
+      label: 'Undo',
+      onClick: () => restoreFromArchive('goal', id),
+    });
   };
 
   const updateGoal = (goalId: string, updates: Partial<Omit<FinanceGoal, 'id' | 'contributions' | 'currentAmount'>>) => {
@@ -1970,6 +2092,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       showToast("You cannot delete your partner's stock investment", 'error');
       return;
     }
+    if (!existing) return;
 
     // Preserve in database backup archive before deleting
     if (existing) {
@@ -1996,10 +2119,30 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     transactionsRef.current = updatedTxs;
     CloudStore.saveTransactions(updatedTxs);
 
+    const expiresAt = new Date(Date.now() + ARCHIVE_RETENTION_DAYS * 86400000).toISOString();
+    const archived: ArchivedItem<StockInvestment> = {
+      item: existing,
+      deletedAt: new Date().toISOString(),
+      deletedByUserId: currentUser.id,
+      deletedByUserName: currentUser.name,
+      expiresAt,
+      type: 'stock',
+    };
+    const updatedArchive: ArchiveData = {
+      ...archiveRef.current,
+      stocks: [archived, ...(archiveRef.current.stocks || []).filter(a => a.item.id !== id)],
+    };
+    archiveRef.current = updatedArchive;
+    setArchive(updatedArchive);
+    CloudStore.saveArchive(updatedArchive);
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ stocks: updated, transactions: updatedTxs });
-    showToast('Stock investment removed', 'info');
+    void pushToCloud({ stocks: updated, transactions: updatedTxs, archive: updatedArchive });
+    showToast('Stock moved to Archive', 'info', {
+      label: 'Undo',
+      onClick: () => restoreFromArchive('stock', id),
+    });
   };
 
   /* ─── Bills ───────────────────────────────────────────────────────────── */
@@ -2370,13 +2513,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteBill = (id: string) => {
     const billToDelete = (billsRef.current || []).find(b => b.id === id);
+    if (!billToDelete || !currentUser) return;
 
     // Preserve in database backup archive before deleting
-    if (billToDelete) {
-      const activeVault = vaultRef.current || CloudStore.getVault();
-      if (activeVault?.id) {
-        void recordDeletedItems(activeVault.id, 'bill', [billToDelete], currentUser);
-      }
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    if (activeVault?.id) {
+      void recordDeletedItems(activeVault.id, 'bill', [billToDelete], currentUser);
     }
 
     pendingCreatedBillIdsRef.current.delete(id);
@@ -2432,10 +2574,198 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     }
 
+    const expiresAt = new Date(Date.now() + ARCHIVE_RETENTION_DAYS * 86400000).toISOString();
+    const archived: ArchivedItem<BillItem> = {
+      item: billToDelete,
+      deletedAt: new Date().toISOString(),
+      deletedByUserId: currentUser.id,
+      deletedByUserName: currentUser.name,
+      expiresAt,
+      type: 'bill',
+    };
+    const updatedArchive: ArchiveData = {
+      ...archiveRef.current,
+      bills: [archived, ...(archiveRef.current.bills || []).filter(a => a.item.id !== id)],
+    };
+    archiveRef.current = updatedArchive;
+    setArchive(updatedArchive);
+    CloudStore.saveArchive(updatedArchive);
+
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions, goals: updatedGoals });
-    showToast('Bill removed and associated expenses refunded', 'info');
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions, goals: updatedGoals, archive: updatedArchive });
+    showToast('Bill moved to Archive', 'info', {
+      label: 'Undo',
+      onClick: () => restoreFromArchive('bill', id),
+    });
+  };
+
+  const restoreFromArchive = (type: ArchiveItemType, id: string) => {
+    if (type === 'transaction') {
+      const archived = (archiveRef.current.transactions || []).find(a => a.item.id === id);
+      if (!archived) return;
+
+      deletedTxIdsRef.current.delete(id);
+      pendingCreatedTxIdsRef.current.add(id);
+
+      const updatedArchive: ArchiveData = {
+        ...archiveRef.current,
+        transactions: (archiveRef.current.transactions || []).filter(a => a.item.id !== id),
+      };
+      archiveRef.current = updatedArchive;
+      setArchive(updatedArchive);
+      CloudStore.saveArchive(updatedArchive);
+
+      const updatedTxs = sortTransactionsDesc([archived.item, ...(transactionsRef.current || []).filter(t => t.id !== id)]);
+      transactionsRef.current = updatedTxs;
+      setTransactions(updatedTxs);
+      CloudStore.saveTransactions(updatedTxs);
+
+      triggerSyncFlash();
+      lastLocalWriteTimeRef.current = Date.now();
+      void pushToCloud({ transactions: updatedTxs, archive: updatedArchive });
+      showToast('Transaction restored successfully', 'success');
+    } else if (type === 'goal') {
+      const archived = (archiveRef.current.goals || []).find(a => a.item.id === id);
+      if (!archived) return;
+
+      deletedGoalIdsRef.current.delete(id);
+      pendingCreatedGoalIdsRef.current.add(id);
+
+      const updatedArchive: ArchiveData = {
+        ...archiveRef.current,
+        goals: (archiveRef.current.goals || []).filter(a => a.item.id !== id),
+      };
+      archiveRef.current = updatedArchive;
+      setArchive(updatedArchive);
+      CloudStore.saveArchive(updatedArchive);
+
+      const updatedGoals = [archived.item, ...(goalsRef.current || []).filter(g => g.id !== id)];
+      goalsRef.current = updatedGoals;
+      setGoals(updatedGoals);
+      CloudStore.saveGoals(updatedGoals);
+
+      triggerSyncFlash();
+      lastLocalWriteTimeRef.current = Date.now();
+      void pushToCloud({ goals: updatedGoals, archive: updatedArchive });
+      showToast('Goal restored successfully', 'success');
+    } else if (type === 'stock') {
+      const archived = (archiveRef.current.stocks || []).find(a => a.item.id === id);
+      if (!archived) return;
+
+      deletedStockIdsRef.current.delete(id);
+      pendingCreatedStockIdsRef.current.add(id);
+
+      const updatedArchive: ArchiveData = {
+        ...archiveRef.current,
+        stocks: (archiveRef.current.stocks || []).filter(a => a.item.id !== id),
+      };
+      archiveRef.current = updatedArchive;
+      setArchive(updatedArchive);
+      CloudStore.saveArchive(updatedArchive);
+
+      const updatedStocks = [archived.item, ...(stocksRef.current || []).filter(s => s.id !== id)];
+      stocksRef.current = updatedStocks;
+      setStocks(updatedStocks);
+      CloudStore.saveStocks(updatedStocks);
+
+      triggerSyncFlash();
+      lastLocalWriteTimeRef.current = Date.now();
+      void pushToCloud({ stocks: updatedStocks, archive: updatedArchive });
+      showToast('Stock investment restored successfully', 'success');
+    } else if (type === 'bill') {
+      const archived = (archiveRef.current.bills || []).find(a => a.item.id === id);
+      if (!archived) return;
+
+      deletedBillIdsRef.current.delete(id);
+      pendingCreatedBillIdsRef.current.add(id);
+
+      const updatedArchive: ArchiveData = {
+        ...archiveRef.current,
+        bills: (archiveRef.current.bills || []).filter(a => a.item.id !== id),
+      };
+      archiveRef.current = updatedArchive;
+      setArchive(updatedArchive);
+      CloudStore.saveArchive(updatedArchive);
+
+      const updatedBills = [archived.item, ...(billsRef.current || []).filter(b => b.id !== id)];
+      billsRef.current = updatedBills;
+      setBills(updatedBills);
+      CloudStore.saveBills(updatedBills);
+
+      triggerSyncFlash();
+      lastLocalWriteTimeRef.current = Date.now();
+      void pushToCloud({ bills: updatedBills, archive: updatedArchive });
+      showToast('Bill restored successfully', 'success');
+    }
+  };
+
+  const permanentDeleteFromArchive = (type: ArchiveItemType, id: string) => {
+    let updatedArchive: ArchiveData;
+    if (type === 'transaction') {
+      deletedTxIdsRef.current.add(id);
+      updatedArchive = {
+        ...archiveRef.current,
+        transactions: (archiveRef.current.transactions || []).filter(a => a.item.id !== id),
+      };
+    } else if (type === 'goal') {
+      deletedGoalIdsRef.current.add(id);
+      updatedArchive = {
+        ...archiveRef.current,
+        goals: (archiveRef.current.goals || []).filter(a => a.item.id !== id),
+      };
+    } else if (type === 'stock') {
+      deletedStockIdsRef.current.add(id);
+      updatedArchive = {
+        ...archiveRef.current,
+        stocks: (archiveRef.current.stocks || []).filter(a => a.item.id !== id),
+      };
+    } else {
+      deletedBillIdsRef.current.add(id);
+      updatedArchive = {
+        ...archiveRef.current,
+        bills: (archiveRef.current.bills || []).filter(a => a.item.id !== id),
+      };
+    }
+
+    archiveRef.current = updatedArchive;
+    setArchive(updatedArchive);
+    CloudStore.saveArchive(updatedArchive);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ archive: updatedArchive });
+    showToast('Item permanently deleted', 'info');
+  };
+
+  const emptyArchive = (type?: ArchiveItemType) => {
+    let updatedArchive: ArchiveData;
+    if (!type) {
+      (archiveRef.current.transactions || []).forEach(a => deletedTxIdsRef.current.add(a.item.id));
+      (archiveRef.current.goals || []).forEach(a => deletedGoalIdsRef.current.add(a.item.id));
+      (archiveRef.current.stocks || []).forEach(a => deletedStockIdsRef.current.add(a.item.id));
+      (archiveRef.current.bills || []).forEach(a => deletedBillIdsRef.current.add(a.item.id));
+      updatedArchive = { transactions: [], goals: [], stocks: [], bills: [] };
+    } else if (type === 'transaction') {
+      (archiveRef.current.transactions || []).forEach(a => deletedTxIdsRef.current.add(a.item.id));
+      updatedArchive = { ...archiveRef.current, transactions: [] };
+    } else if (type === 'goal') {
+      (archiveRef.current.goals || []).forEach(a => deletedGoalIdsRef.current.add(a.item.id));
+      updatedArchive = { ...archiveRef.current, goals: [] };
+    } else if (type === 'stock') {
+      (archiveRef.current.stocks || []).forEach(a => deletedStockIdsRef.current.add(a.item.id));
+      updatedArchive = { ...archiveRef.current, stocks: [] };
+    } else {
+      (archiveRef.current.bills || []).forEach(a => deletedBillIdsRef.current.add(a.item.id));
+      updatedArchive = { ...archiveRef.current, bills: [] };
+    }
+
+    archiveRef.current = updatedArchive;
+    setArchive(updatedArchive);
+    CloudStore.saveArchive(updatedArchive);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ archive: updatedArchive });
+    showToast(type ? `All archived ${type}s permanently deleted` : 'Archive emptied', 'info');
   };
 
   const updateBill = useCallback((updatedBill: BillItem) => {
@@ -2603,6 +2933,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addStock, updateStock, deleteStock,
         addBill, updateBill, markBillAsPaid, deleteBill,
         settleBill, settleAllBills,
+        archive, archiveCount, restoreFromArchive, permanentDeleteFromArchive, emptyArchive,
         refreshSync: pullFromCloud,
         exchangeRate: exchangeRateData.rate,
         exchangeRateData,

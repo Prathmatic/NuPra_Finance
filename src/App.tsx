@@ -13,7 +13,9 @@ import { OnboardingFlow } from './components/auth/OnboardingFlow';
 import { AddTransactionModal } from './components/transactions/AddTransactionModal';
 import { AddGoalModal } from './components/goals/AddGoalModal';
 import { AddStockModal } from './components/stocks/AddStockModal';
+import { ArchiveModal } from './components/archive/ArchiveModal';
 import { InteractiveSplash } from './components/layout/InteractiveSplash';
+import { ArchiveItemType } from './types/finance';
 import { Smartphone, Monitor } from 'lucide-react';
 
 const MainContent: React.FC = () => {
@@ -24,7 +26,14 @@ const MainContent: React.FC = () => {
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [isAddGoalOpen, setIsAddGoalOpen] = useState(false);
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [archiveInitialType, setArchiveInitialType] = useState<ArchiveItemType | 'all'>('all');
   const [isMobileFrameMode, setIsMobileFrameMode] = useState(false);
+
+  const handleOpenArchive = (type: ArchiveItemType | 'all' = 'all') => {
+    setArchiveInitialType(type);
+    setIsArchiveOpen(true);
+  };
 
   if (showSplash) {
     return (
@@ -51,13 +60,32 @@ const MainContent: React.FC = () => {
           />
         );
       case 'transactions':
-        return <TransactionsView onOpenAddModal={() => setIsAddTxOpen(true)} />;
+        return (
+          <TransactionsView 
+            onOpenAddModal={() => setIsAddTxOpen(true)} 
+            onOpenArchive={() => handleOpenArchive('transaction')}
+          />
+        );
       case 'goals':
-        return <GoalsView onOpenAddGoalModal={() => setIsAddGoalOpen(true)} />;
+        return (
+          <GoalsView 
+            onOpenAddGoalModal={() => setIsAddGoalOpen(true)} 
+            onOpenArchive={() => handleOpenArchive('goal')}
+          />
+        );
       case 'stocks':
-        return <StockInvestmentView onOpenAddStockModal={() => setIsAddStockOpen(true)} />;
+        return (
+          <StockInvestmentView 
+            onOpenAddStockModal={() => setIsAddStockOpen(true)} 
+            onOpenArchive={() => handleOpenArchive('stock')}
+          />
+        );
       case 'bills':
-        return <BillsView />;
+        return (
+          <BillsView 
+            onOpenArchive={() => handleOpenArchive('bill')}
+          />
+        );
       case 'stats':
         return <StatisticsView />;
       default:
@@ -101,6 +129,7 @@ const MainContent: React.FC = () => {
         <AppHeader 
           onOpenProfile={() => setIsAuthOpen(true)} 
           onOpenAddModal={() => setIsAddTxOpen(true)} 
+          onOpenArchive={handleOpenArchive}
           onReplaySplash={() => setShowSplash(true)} 
         />
 
@@ -119,6 +148,11 @@ const MainContent: React.FC = () => {
         <AddTransactionModal isOpen={isAddTxOpen} onClose={() => setIsAddTxOpen(false)} />
         <AddGoalModal isOpen={isAddGoalOpen} onClose={() => setIsAddGoalOpen(false)} />
         <AddStockModal isOpen={isAddStockOpen} onClose={() => setIsAddStockOpen(false)} />
+        <ArchiveModal 
+          isOpen={isArchiveOpen} 
+          onClose={() => setIsArchiveOpen(false)} 
+          initialType={archiveInitialType} 
+        />
       </div>
     </div>
   );

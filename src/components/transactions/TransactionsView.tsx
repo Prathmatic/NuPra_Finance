@@ -15,7 +15,8 @@ import {
   CheckSquare,
   Square,
   Check,
-  Database
+  Database,
+  Archive
 } from 'lucide-react';
 import { formatCurrency, formatDate, getGoalSavingsTitle } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
@@ -29,9 +30,10 @@ import { UserAvatar } from '../common/UserAvatar';
 
 interface TransactionsViewProps {
   onOpenAddModal: () => void;
+  onOpenArchive?: () => void;
 }
 
-export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddModal }) => {
+export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddModal, onOpenArchive }) => {
   const { 
     transactions, 
     categories, 
@@ -41,7 +43,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
     deleteTransaction,
     bulkDeleteTransactions,
     toggleFlagTransaction,
-    selectedMonth 
+    selectedMonth,
+    archive
   } = useFinance();
 
   const [search, setSearch] = useState('');
@@ -336,7 +339,19 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
 
       {/* Filter Summary Stats */}
       <div className="flex items-center justify-between px-1 text-xs text-slate-400">
-        <span>{filteredList.length} transactions found</span>
+        <div className="flex items-center gap-2">
+          <span>{filteredList.length} transactions found</span>
+          {archive.transactions?.length > 0 && onOpenArchive && (
+            <button
+              onClick={onOpenArchive}
+              className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-semibold transition-all flex items-center gap-1 active:scale-95"
+              title="View archived transactions"
+            >
+              <Archive className="w-3 h-3" />
+              <span>{archive.transactions.length} archived</span>
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-emerald-400 font-semibold">+{formatCurrency(totalFilteredIncome, currency)}</span>
           <span className="text-rose-400 font-semibold">-{formatCurrency(totalFilteredExpense, currency)}</span>

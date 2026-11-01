@@ -218,3 +218,24 @@ export interface BillItem {
   goalId?: string;
   goalTitle?: string;
 }
+
+export type ArchiveItemType = 'transaction' | 'goal' | 'stock' | 'bill';
+
+export interface ArchivedItem<T> {
+  item: T;
+  deletedAt: string;
+  deletedByUserId: string;
+  deletedByUserName: string;
+  expiresAt: string;
+  type: ArchiveItemType;
+}
+
+export interface ArchiveData {
+  transactions: ArchivedItem<Transaction>[];
+  goals: ArchivedItem<FinanceGoal>[];
+  stocks: ArchivedItem<StockInvestment>[];
+  bills: ArchivedItem<BillItem>[];
+}
+
+/** Items are auto-purged from archive after this many days */
+export const ARCHIVE_RETENTION_DAYS = 365;

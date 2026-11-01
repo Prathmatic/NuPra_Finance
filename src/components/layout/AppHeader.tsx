@@ -5,9 +5,9 @@ import {
   User, 
   Settings, 
   ChevronDown,
-  RefreshCw,
   Bell,
-  Database
+  Database,
+  Archive
 } from 'lucide-react';
 import { NPIcon } from '../common/NPIcon';
 import { CurrencyConverterModal } from '../common/CurrencyConverterModal';
@@ -15,14 +15,16 @@ import { UserAvatar } from '../common/UserAvatar';
 import { ActivityNotificationDrawer } from './ActivityNotificationDrawer';
 import { BackupExportModal } from '../common/BackupExportModal';
 import { RestoreBackupModal } from '../common/RestoreBackupModal';
+import { ArchiveItemType } from '../../types/finance';
 
 interface AppHeaderProps {
   onOpenProfile: () => void;
   onOpenAddModal: () => void;
+  onOpenArchive?: (type?: ArchiveItemType) => void;
   onReplaySplash?: () => void;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySplash }) => {
+export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onOpenArchive, onReplaySplash }) => {
   const { 
     currentUser, 
     partner, 
@@ -36,6 +38,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
     exchangeRate,
     isRateLoading,
     notifications,
+    archiveCount,
   } = useFinance();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -207,6 +210,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
                     >
                       <Settings className="w-4 h-4 text-indigo-400" />
                       <span>Profile & Settings</span>
+                    </button>
+                    <button
+                      onClick={() => { setIsUserMenuOpen(false); onOpenArchive?.(); }}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-200 hover:bg-white/10 transition-all text-left group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Archive className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                        <span>Archive & Trash</span>
+                      </div>
+                      {archiveCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">
+                          {archiveCount}
+                        </span>
+                      )}
                     </button>
                   </div>
                 </div>

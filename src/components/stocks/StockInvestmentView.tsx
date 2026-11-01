@@ -10,7 +10,8 @@ import {
   PieChart, 
   DollarSign, 
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  Archive
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatMonthYear } from '../../utils/formatters';
 import { StockInvestment } from '../../types/finance';
@@ -19,10 +20,11 @@ import { UserAvatar } from '../common/UserAvatar';
 
 interface StockInvestmentViewProps {
   onOpenAddStockModal: () => void;
+  onOpenArchive?: () => void;
 }
 
-export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpenAddStockModal }) => {
-  const { stocks, currency, currentUser, partner, deleteStock } = useFinance();
+export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpenAddStockModal, onOpenArchive }) => {
+  const { stocks, currency, currentUser, partner, deleteStock, archive } = useFinance();
 
   const getStockAvatar = (stock: StockInvestment) => {
     return stock.userAvatar || (stock.userId === currentUser?.id ? currentUser?.avatarUrl : partner?.avatarUrl);
@@ -102,13 +104,25 @@ export const StockInvestmentView: React.FC<StockInvestmentViewProps> = ({ onOpen
             </div>
           </div>
 
-          <button
-            onClick={onOpenAddStockModal}
-            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Stock</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {archive.stocks?.length > 0 && onOpenArchive && (
+              <button
+                onClick={onOpenArchive}
+                className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/25 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95"
+                title="View archived stock investments"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>({archive.stocks.length} archived)</span>
+              </button>
+            )}
+            <button
+              onClick={onOpenAddStockModal}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Stock</span>
+            </button>
+          </div>
         </div>
 
         {/* Month Selector Pill */}

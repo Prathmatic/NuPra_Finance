@@ -22,6 +22,7 @@ import {
   X,
   Wallet,
   TrendingUp,
+  Archive,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { FinanceGoal } from '../../types/finance';
@@ -30,13 +31,15 @@ import { EditGoalModal } from './EditGoalModal';
 
 interface GoalsViewProps {
   onOpenAddGoalModal: () => void;
+  onOpenArchive?: () => void;
 }
 
-export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
+export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal, onOpenArchive }) => {
   const { 
     goals, currency, currentUser, partner, deleteGoal, viewMode,
     flagGoal, addGoalComment, transactions,
     approveGoalChange, rejectGoalChange, cancelGoalChange,
+    archive
   } = useFinance();
 
   const [selectedGoalForContribute, setSelectedGoalForContribute] = useState<FinanceGoal | null>(null);
@@ -310,13 +313,25 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
             </p>
           </div>
         </div>
-        <button
-          onClick={onOpenAddGoalModal}
-          className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:opacity-90 text-white text-xs font-bold shadow-md flex items-center gap-1.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Goal</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {archive.goals?.length > 0 && onOpenArchive && (
+            <button
+              onClick={onOpenArchive}
+              className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/25 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95"
+              title="View archived goals"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>({archive.goals.length} archived)</span>
+            </button>
+          )}
+          <button
+            onClick={onOpenAddGoalModal}
+            className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:opacity-90 text-white text-xs font-bold shadow-md flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Goal</span>
+          </button>
+        </div>
       </div>
 
       {/* ── 3 Net Available Savings (Me, Partner, Together) Banner ──────── */}

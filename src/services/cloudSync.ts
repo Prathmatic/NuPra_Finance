@@ -7,7 +7,8 @@ import {
   BillItem, 
   Category,
   CurrencyCode,
-  BudgetsConfig 
+  BudgetsConfig,
+  ArchiveData 
 } from '../types/finance';
 import { DEFAULT_CATEGORIES } from '../constants/defaultCategories';
 
@@ -24,6 +25,7 @@ export const KEYS = {
   CURRENCY:      `${STORAGE_PREFIX}_currency`,
   ONBOARDED:     `${STORAGE_PREFIX}_onboarded`,
   BUDGETS:       `${STORAGE_PREFIX}_budgets`,
+  ARCHIVE:       `${STORAGE_PREFIX}_archive`,
 };
 
 const syncChannel =
@@ -346,6 +348,25 @@ export const CloudStore = {
   saveBudgets(budgets: BudgetsConfig) {
     safeSetItem(KEYS.BUDGETS, JSON.stringify(budgets));
     CloudStore.broadcast('budgets_updated', budgets);
+  },
+
+  /* ── Archive ──────────────────────────────────────────────────────── */
+  getArchive(): ArchiveData {
+    try {
+      const d = localStorage.getItem(KEYS.ARCHIVE);
+      if (!d) return { transactions: [], goals: [], stocks: [], bills: [] };
+      const parsed = JSON.parse(d);
+      return {
+        transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+        goals: Array.isArray(parsed.goals) ? parsed.goals : [],
+        stocks: Array.isArray(parsed.stocks) ? parsed.stocks : [],
+        bills: Array.isArray(parsed.bills) ? parsed.bills : [],
+      };
+    } catch { return { transactions: [], goals: [], stocks: [], bills: [] }; }
+  },
+  saveArchive(archive: ArchiveData) {
+    safeSetItem(KEYS.ARCHIVE, JSON.stringify(archive));
+    CloudStore.broadcast('archive_updated', archive);
   },
 
   /* ── Helpers ─────────────────────────────────────────────────────── */
