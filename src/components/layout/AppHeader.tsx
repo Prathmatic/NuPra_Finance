@@ -5,6 +5,7 @@ import {
   User, 
   Settings, 
   ChevronDown,
+  RefreshCw,
   Bell,
   Database,
   Archive
