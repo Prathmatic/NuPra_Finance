@@ -65,6 +65,10 @@ export const BankAccountsCard: React.FC<BankAccountsCardProps> = ({
       } else if (partner && t.userId === partner.id) {
         if (t.type === 'income') pInc += t.amount;
         else if (t.type === 'expense' && !isGoalSavings) pExp += t.amount;
+      } else {
+        // Fallback for unassigned or legacy transactions: attribute to currentUser
+        if (t.type === 'income') myInc += t.amount;
+        else if (t.type === 'expense' && !isGoalSavings) myExp += t.amount;
       }
     });
 
