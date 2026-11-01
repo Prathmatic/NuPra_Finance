@@ -16,13 +16,15 @@ import {
   HandCoins,
   ArrowUpRight,
   ArrowDownLeft,
-  Sparkles,
-  Target
+  Target,
+  Edit2,
+  Sparkles
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { calculateSplitwiseBalance, getBillSplitInfo } from '../../utils/splitwise';
 import { BillItem } from '../../types/finance';
 import { AddBillModal } from './AddBillModal';
+import { EditBillModal } from './EditBillModal';
 import { SettleUpModal } from './SettleUpModal';
 
 export const BillsView: React.FC = () => {
@@ -40,6 +42,7 @@ export const BillsView: React.FC = () => {
   const [isAddBillOpen, setIsAddBillOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [settlingBill, setSettlingBill] = useState<BillItem | null>(null);
+  const [editingBill, setEditingBill] = useState<BillItem | null>(null);
 
   // Splitwise Net Calculations
   const splitwiseSummary = useMemo(() => {
@@ -49,13 +52,8 @@ export const BillsView: React.FC = () => {
   const unpaidBills = useMemo(() => bills.filter(b => !b.isPaid), [bills]);
   const paidBills = useMemo(() => bills.filter(b => b.isPaid), [bills]);
   const debtBills = useMemo(() => {
-    return bills.filter(b => {
-      if (b.isSettled) return false;
-      const split = b.splitType || 'equal';
-      if (split === 'personal') return false;
-      return Boolean(b.paidByUserId || b.payerId);
-    });
-  }, [bills]);
+    return splitwiseSummary.unsettledBills;
+  }, [splitwiseSummary]);
 
   const displayedBills = useMemo(() => {
     if (tab === 'unpaid') return unpaidBills;
@@ -239,7 +237,7 @@ export const BillsView: React.FC = () => {
           }`}
         >
           <HandCoins className="w-3 h-3" />
-          <span>Debts ({debtBills.length})</span>
+          <span>Unsettled ({debtBills.length})</span>
         </button>
       </div>
 
@@ -319,11 +317,18 @@ export const BillsView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Amount and delete */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-base font-black text-white">
+                  {/* Amount, Edit and Delete */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-base font-black text-white mr-1">
                       {formatCurrency(b.amount, currency)}
                     </span>
+                    <button
+                      onClick={() => setEditingBill(b)}
+                      className="p-1 rounded-lg text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 transition-all opacity-80 group-hover:opacity-100"
+                      title="Edit bill"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => deleteBill(b.id)}
                       className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-80 group-hover:opacity-100"
@@ -378,9 +383,9 @@ export const BillsView: React.FC = () => {
 
                       return (
                         <>
-                          {showIPaid && (
+                          {showIPaid && currentUser && (
                             <button
-                              onClick={() => markBillAsPaid(b.id, currentUser!.id, currentUser!.name)}
+                              onClick={() => markBillAsPaid(b.id, currentUser.id, currentUser.name)}
                               className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1"
                               title="Mark as paid by you"
                             >
@@ -465,6 +470,13 @@ export const BillsView: React.FC = () => {
       <AddBillModal
         isOpen={isAddBillOpen}
         onClose={() => setIsAddBillOpen(false)}
+      />
+
+      {/* Edit Bill Modal */}
+      <EditBillModal
+        isOpen={Boolean(editingBill)}
+        onClose={() => setEditingBill(null)}
+        bill={editingBill}
       />
     </div>
   );

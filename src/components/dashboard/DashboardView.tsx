@@ -14,7 +14,13 @@ import {
   Edit2,
   Flag,
   MessageSquare,
-  Lock
+  Lock,
+  StickyNote,
+  Sparkles,
+  CheckCircle2,
+  Clock,
+  AlertTriangle,
+  Check
 } from 'lucide-react';
 import { formatCurrency, formatDate, getGoalSavingsTitle } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
@@ -24,6 +30,7 @@ import { BankAccountsCard } from './BankAccountsCard';
 import { EditTransactionModal } from '../transactions/EditTransactionModal';
 import { TransactionActivityDrawer } from '../transactions/TransactionActivityDrawer';
 import { Transaction } from '../../types/finance';
+import { UserAvatar } from '../common/UserAvatar';
 
 interface DashboardViewProps {
   onOpenAddModal: () => void;
@@ -50,14 +57,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     budgets,
     bankBalances,
     updateBankBalance,
+    updateMonthlyNote,
     getBudgetForMonth,
     toggleFlagTransaction,
+    markBillAsPaid,
     vault
   } = useFinance();
 
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [noteInput, setNoteInput] = useState('');
 
   // Filter transactions based on viewMode ('both' | 'me' | 'partner')
   const getTxAvatar = (tx: Transaction) => {
@@ -176,9 +187,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     let myStock = 0;
     let partnerStock = 0;
 
-    stocks.filter(s => s.monthYear === selectedMonth).forEach(s => {
+    stocks.filter(s => {
+      const normalizedMonthYear = s.monthYear?.length === 7 ? s.monthYear : s.date?.slice(0, 7);
+      return normalizedMonthYear === selectedMonth;
+    }).forEach(s => {
       total += s.investedAmount;
-      if (s.userId === currentUser!.id) {
+      if (currentUser && s.userId === currentUser.id) {
         myStock += s.investedAmount;
       } else {
         partnerStock += s.investedAmount;
@@ -188,10 +202,58 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return { total, myStock, partnerStock };
   }, [stocks, selectedMonth, currentUser]);
 
-  // Pending bills
-  const pendingBills = useMemo(() => {
-    return bills.filter(b => !b.isPaid).slice(0, 2);
+  // Upcoming bills due within 7 days or overdue
+  const upcomingBills = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return bills
+      .filter(b => !b.isPaid)
+      .map(b => {
+        const due = new Date(b.dueDate);
+        due.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        return { ...b, diffDays };
+      })
+      .filter(b => b.diffDays <= 7)
+      .sort((a, b) => a.diffDays - b.diffDays);
   }, [bills]);
+
+  // Monthly Spending Wrap-Up / Health Analytics
+  const monthlyWrapUp = useMemo(() => {
+    const categoryTotals: Record<string, { amount: number; color: string; icon: string }> = {};
+    let totalSpent = 0;
+
+    transactions
+      .filter(t => t.date.startsWith(selectedMonth) && t.type === 'expense')
+      .forEach(t => {
+        totalSpent += t.amount;
+        if (!categoryTotals[t.categoryName]) {
+          categoryTotals[t.categoryName] = { amount: 0, color: t.categoryColor, icon: t.categoryIcon };
+        }
+        categoryTotals[t.categoryName].amount += t.amount;
+      });
+
+    const topCategoryEntry = Object.entries(categoryTotals).sort((a, b) => b[1].amount - a[1].amount)[0];
+    const topCategory = topCategoryEntry ? {
+      name: topCategoryEntry[0],
+      amount: topCategoryEntry[1].amount,
+      color: topCategoryEntry[1].color,
+      pct: totalSpent > 0 ? Math.round((topCategoryEntry[1].amount / totalSpent) * 100) : 0,
+    } : null;
+
+    const now = new Date();
+    const isCurrentMonth = selectedMonth === now.toISOString().slice(0, 7);
+    const daysCount = isCurrentMonth ? Math.max(1, now.getDate()) : 30;
+    const avgDailySpend = totalSpent / daysCount;
+
+    return {
+      topCategory,
+      avgDailySpend,
+      totalSpent,
+    };
+  }, [transactions, selectedMonth]);
+
+  const activeMonthlyNote = budgets.monthlyNotes?.[selectedMonth] || '';
 
   return (
     <div className="space-y-4 pb-20 animate-in fade-in duration-300">
@@ -206,7 +268,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase font-extrabold tracking-widest text-emerald-400">
-              {viewMode === 'both' ? 'Shared Couple Balance' : viewMode === 'me' ? `${currentUser!.name}'s Personal` : `${partner?.name}'s Personal`}
+              {viewMode === 'both' ? 'Shared Couple Balance' : viewMode === 'me' ? `${currentUser?.name || 'My'}'s Personal` : `${partner?.name || 'Partner'}'s Personal`}
             </span>
           </div>
           <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/10 font-semibold">
@@ -260,13 +322,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {viewMode === 'both' && partner && (
           <div className="mt-3.5 pt-3 border-t border-white/5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
-              <img src={currentUser!.avatarUrl} alt={currentUser!.name} className="w-5 h-5 rounded-full object-cover ring-1 ring-emerald-500" />
-              <span className="text-slate-300 font-medium">{currentUser!.name}:</span>
+              {currentUser?.avatarUrl ? (
+                <img src={currentUser.avatarUrl} alt={currentUser.name} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} className="w-5 h-5 rounded-full object-cover ring-1 ring-emerald-500" />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-emerald-500/30 flex items-center justify-center ring-1 ring-emerald-500 text-[9px] font-bold text-emerald-300">{currentUser?.name?.[0]?.toUpperCase()}</div>
+              )}
+              <span className="text-slate-300 font-medium">{currentUser?.name}:</span>
               <span className="text-rose-400 font-bold">{formatCurrency(myExpense, currency)}</span>
             </div>
             <div className="h-3 w-px bg-white/10" />
             <div className="flex items-center gap-2">
-              <img src={partner.avatarUrl} alt={partner.name} className="w-5 h-5 rounded-full object-cover ring-1 ring-indigo-500" />
+              {partner.avatarUrl ? (
+                <img src={partner.avatarUrl} alt={partner.name} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} className="w-5 h-5 rounded-full object-cover ring-1 ring-indigo-500" />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-indigo-500/30 flex items-center justify-center ring-1 ring-indigo-500 text-[9px] font-bold text-indigo-300">{partner.name?.[0]?.toUpperCase()}</div>
+              )}
               <span className="text-slate-300 font-medium">{partner.name}:</span>
               <span className="text-indigo-400 font-bold">{formatCurrency(partnerExpense, currency)}</span>
             </div>
@@ -375,7 +445,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="p-3 rounded-2xl bg-slate-900/50 border border-white/5 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
-                <img src={currentUser?.avatarUrl || ''} alt={currentUser?.name || 'User'} className="w-4 h-4 rounded-full object-cover ring-1 ring-emerald-500 shrink-0" />
+                <UserAvatar src={currentUser?.avatarUrl} name={currentUser?.name || 'Me'} size="xs" ringColor="ring-emerald-500" />
                 <span className="font-bold text-white text-[11px] truncate">{currentUser?.name || 'Me'} (Me)</span>
               </div>
               <span className="font-semibold text-[11px] text-slate-300">
@@ -389,8 +459,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   myLimit === 0 ? 'w-0' : myPercent > 90 ? 'bg-rose-500' : 'bg-emerald-500'
                 }`}
                 style={{ width: `${myLimit === 0 ? 0 : Math.min(100, myPercent)}%` }}
-              />
-            </div>
+            />
+          </div>
 
             <div className="flex items-center justify-between text-[10px] text-slate-400">
               <span>{myLimit > 0 ? `${myPercent}% spent` : 'No personal cap'}</span>
@@ -408,7 +478,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="p-3 rounded-2xl bg-slate-900/50 border border-white/5 space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5">
-                  <img src={partner.avatarUrl} alt={partner.name} className="w-4 h-4 rounded-full object-cover ring-1 ring-purple-500 shrink-0" />
+                  <UserAvatar src={partner.avatarUrl} name={partner.name} size="xs" ringColor="ring-purple-500" />
                   <span className="font-bold text-white text-[11px] truncate">{partner.name}</span>
                 </div>
                 <span className="font-semibold text-[11px] text-slate-300">
@@ -477,7 +547,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {/* Individual split */}
         {partner && (
           <div className="mt-2.5 flex items-center justify-around text-xs text-slate-400 px-1">
-            <span>{currentUser!.name}: <strong className="text-slate-200">{formatCurrency(monthStocks.myStock, currency)}</strong></span>
+            <span>{currentUser?.name || 'Me'}: <strong className="text-slate-200">{formatCurrency(monthStocks.myStock, currency)}</strong></span>
             <span>•</span>
             <span>{partner.name}: <strong className="text-slate-200">{formatCurrency(monthStocks.partnerStock, currency)}</strong></span>
           </div>
@@ -503,7 +573,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {goals.slice(0, 2).map((goal) => {
             const neededMore = Math.max(0, goal.targetAmount - goal.currentAmount);
-            const progress = Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100));
+            const progress = goal.targetAmount > 0 ? Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100)) : 0;
 
             return (
               <div 
@@ -533,35 +603,186 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Upcoming Unpaid Bills */}
-      {pendingBills.length > 0 && (
-        <div className="glass-card p-4 rounded-3xl border border-orange-500/20 bg-orange-950/20">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <CalendarCheck className="w-4 h-4 text-orange-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-orange-300">Upcoming Bills</span>
+      {/* Upcoming Bill Due Date Reminders (Next 7 Days / Overdue) */}
+      <div className="glass-card p-4 rounded-3xl border border-orange-500/25 bg-gradient-to-br from-orange-950/30 via-slate-900 to-amber-950/20 shadow-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-orange-500/20 text-orange-400">
+              <CalendarCheck className="w-4 h-4" />
             </div>
-            <button
-              onClick={() => setActiveTab('bills')}
-              className="text-xs font-semibold text-orange-400 hover:text-orange-300"
-            >
-              Manage Bills
-            </button>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-white">Bill Due Reminders</span>
+              <p className="text-[10px] text-slate-400">Dues coming up in the next 7 days</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('bills')}
+            className="text-xs font-semibold text-orange-400 hover:text-orange-300 transition-colors"
+          >
+            All Bills ({bills.length})
+          </button>
+        </div>
+
+        {upcomingBills.length === 0 ? (
+          <div className="p-3 rounded-2xl bg-white/5 border border-white/5 flex items-center gap-2.5 text-xs text-slate-300">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>All upcoming bills are settled for this week! Great job. 🎉</span>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {upcomingBills.slice(0, 3).map((b) => {
+              const isOverdue = b.diffDays < 0;
+              const isToday = b.diffDays === 0;
+
+              return (
+                <div key={b.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-900/80 border border-white/5 text-xs gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-white truncate">{b.title}</p>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                        isOverdue 
+                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' 
+                          : isToday 
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-orange-500/15 text-orange-300 border border-orange-500/25'
+                      }`}>
+                        {isOverdue ? `Overdue by ${Math.abs(b.diffDays)}d` : isToday ? 'Due Today!' : `Due in ${b.diffDays}d`}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Due {formatDate(b.dueDate)}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-black text-orange-400 text-sm">{formatCurrency(b.amount, currency)}</span>
+                    {currentUser && (
+                      <button
+                        onClick={() => markBillAsPaid(b.id, currentUser.id, currentUser.name)}
+                        className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-md transition-all active:scale-95 flex items-center gap-1"
+                        title="Mark as paid by you"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>I Paid</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Monthly Financial Health & Wrap-Up Card */}
+      <div className="glass-card p-4 rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-950/30 via-slate-900 to-purple-950/30 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-indigo-500/20 text-indigo-400">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-white">Monthly Wrap-Up & Health</span>
+              <p className="text-[10px] text-slate-400">Snapshot for {selectedMonth}</p>
+            </div>
+          </div>
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+            savingsRate >= 30 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+            savingsRate >= 10 ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' :
+            'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+          }`}>
+            {savingsRate >= 30 ? '🟢 Strong Saver' : savingsRate >= 10 ? '🟡 Balanced' : '🟠 High Spend'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5 text-xs">
+          <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1">
+            <p className="text-[10px] text-slate-400">Top Spend Category</p>
+            {monthlyWrapUp.topCategory ? (
+              <div>
+                <p className="font-bold text-white truncate">{monthlyWrapUp.topCategory.name}</p>
+                <p className="text-[11px] text-indigo-300 font-semibold mt-0.5">
+                  {formatCurrency(monthlyWrapUp.topCategory.amount, currency)} ({monthlyWrapUp.topCategory.pct}%)
+                </p>
+              </div>
+            ) : (
+              <p className="text-slate-500 text-[11px]">No expenses yet</p>
+            )}
           </div>
 
-          <div className="space-y-2">
-            {pendingBills.map((b) => (
-              <div key={b.id} className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-900/80 border border-white/5 text-xs">
-                <div>
-                  <p className="font-semibold text-white">{b.title}</p>
-                  <p className="text-[10px] text-slate-400">Due {formatDate(b.dueDate)}</p>
-                </div>
-                <span className="font-bold text-orange-400">{formatCurrency(b.amount, currency)}</span>
-              </div>
-            ))}
+          <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1">
+            <p className="text-[10px] text-slate-400">Avg Daily Spend</p>
+            <div>
+              <p className="font-bold text-white">{formatCurrency(monthlyWrapUp.avgDailySpend, currency)}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Per day this month</p>
+            </div>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Shared Monthly Couple Note Card */}
+      <div className="glass-card p-4 rounded-3xl border border-white/10 bg-gradient-to-br from-amber-950/20 via-slate-900 to-slate-900 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-amber-500/20 text-amber-400">
+              <StickyNote className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-white">Couple Finance Memo</span>
+              <p className="text-[10px] text-slate-400">Shared note for {selectedMonth}</p>
+            </div>
+          </div>
+
+          {!isEditingNote ? (
+            <button
+              onClick={() => {
+                setNoteInput(activeMonthlyNote);
+                setIsEditingNote(true);
+              }}
+              className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1 transition-all"
+            >
+              <Edit2 className="w-3 h-3 text-amber-400" />
+              <span>{activeMonthlyNote ? 'Edit' : '+ Add Note'}</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsEditingNote(false)}
+                className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-white text-[11px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  updateMonthlyNote(selectedMonth, noteInput.trim());
+                  setIsEditingNote(false);
+                }}
+                className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold shadow-sm"
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isEditingNote ? (
+          <div className="space-y-2">
+            <textarea
+              value={noteInput}
+              onChange={(e) => setNoteInput(e.target.value)}
+              placeholder="e.g. Saving for anniversary trip next month; keep weekend eating out under ₹2,000..."
+              className="w-full p-3 rounded-2xl bg-slate-900/90 border border-amber-500/40 text-white text-xs placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none h-20"
+              autoFocus
+            />
+          </div>
+        ) : (
+          <div className="p-3 rounded-2xl bg-white/5 border border-white/5 text-xs">
+            {activeMonthlyNote ? (
+              <p className="text-slate-200 whitespace-pre-wrap leading-relaxed">{activeMonthlyNote}</p>
+            ) : (
+              <p className="text-slate-500 italic">No notes set for {selectedMonth}. Tap "+ Add Note" to leave a reminder for you and {partner?.name || 'your partner'}.</p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Recent Transactions List with Partner Avatars & Tap to Edit */}
       <div>

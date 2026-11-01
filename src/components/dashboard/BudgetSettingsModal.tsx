@@ -10,9 +10,11 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Calendar, 
-  RotateCcw 
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 import { getCurrencySymbol } from '../../utils/formatters';
+import { ClearAmountsConfirmModal } from '../common/ClearAmountsConfirmModal';
 
 interface BudgetSettingsModalProps {
   isOpen: boolean;
@@ -42,6 +44,7 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
   const [coupleBudget, setCoupleBudget] = useState('0');
   const [myBudget, setMyBudget] = useState('0');
   const [setAsDefault, setSetAsDefault] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -304,13 +307,31 @@ export const BudgetSettingsModal: React.FC<BudgetSettingsModalProps> = ({
           {/* Save Button */}
           <button
             type="submit"
-            className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 mt-2"
+            className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-90 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
           >
             <Check className="w-4 h-4 stroke-[2.5]" />
             <span>Save Budget for {formattedMonthName}</span>
           </button>
         </form>
+
+        {/* Start Fresh Reset Option */}
+        <div className="pt-3 border-t border-white/10 flex items-center justify-between">
+          <span className="text-[11px] text-slate-400">Want to start from scratch?</span>
+          <button
+            type="button"
+            onClick={() => setIsResetModalOpen(true)}
+            className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset All Amounts to 0</span>
+          </button>
+        </div>
       </div>
+
+      <ClearAmountsConfirmModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+      />
     </div>
   );
 };

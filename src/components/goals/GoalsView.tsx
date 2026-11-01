@@ -508,7 +508,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ onOpenAddGoalModal }) => {
         <div className="space-y-4">
           {filteredGoals.map((goal) => {
             const neededMore = Math.max(0, goal.targetAmount - goal.currentAmount);
-            const progress = Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100));
+            const progress = goal.targetAmount > 0 ? Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100)) : 0;
             const isCompleted = goal.currentAmount >= goal.targetAmount && goal.targetAmount > 0;
             const assignment = getGoalAssignment(goal);
             const isBothGoal = assignment.type === 'both';

@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { X, Camera, Link2, Heart, ShieldCheck, LogOut, User } from 'lucide-react';
+import { X, Camera, Link2, Heart, ShieldCheck, LogOut, User, RotateCcw } from 'lucide-react';
 import { compressAvatarImage } from '../../utils/imageCompressor';
+import { ClearAmountsConfirmModal } from '../common/ClearAmountsConfirmModal';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const [name, setName] = useState(currentUser?.name ?? '');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl ?? AVATAR_PRESETS[0]);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -133,6 +135,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </div>
         )}
 
+        {/* Start From Scratch / Reset All Amounts */}
+        <div className="mt-6 pt-5 border-t border-white/10 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <RotateCcw className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-bold text-white">Start From Scratch</h3>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
+              Amounts to 0
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Reset all amounts to 0 for both partners across goals, bills, budgets, bank balances, and transactions to fill everything up fresh.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsResetModalOpen(true)}
+            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600/80 via-rose-600/80 to-pink-600/80 hover:from-amber-600 hover:to-pink-600 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Clear All Amounts to 0 (Both Partners)
+          </button>
+        </div>
+
         <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
@@ -143,6 +168,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
       </div>
+
+      <ClearAmountsConfirmModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+      />
     </div>
   );
 };

@@ -192,7 +192,7 @@ export const AddBillModal: React.FC<AddBillModalProps> = ({ isOpen, onClose }) =
                     >
                       {eligibleGoals.map(g => (
                         <option key={g.id} value={g.id} className="bg-slate-900 text-white">
-                          {g.isShared ? '👥 ' : '👤 '}{g.title} ({formatCurrency(g.targetAmount, currency)} · {g.currentAmount >= g.targetAmount ? 'Completed ✓' : `${Math.round((g.currentAmount / g.targetAmount) * 100)}%`})
+                          {g.isShared ? '👥 ' : '👤 '}{g.title} ({formatCurrency(g.targetAmount, currency)} · {g.targetAmount > 0 && g.currentAmount >= g.targetAmount ? 'Completed ✓' : `${g.targetAmount > 0 ? Math.round((g.currentAmount / g.targetAmount) * 100) : 0}%`})
                         </option>
                       ))}
                     </select>

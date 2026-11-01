@@ -39,6 +39,20 @@ export interface BudgetsConfig {
   bankBalances?: Record<string, number>;
   monthlyBudgets?: Record<string, MonthlyBudgetRecord>;
   userCurrencies?: Record<string, CurrencyCode>;
+  scratchResetVersion?: string;
+  monthlyNotes?: Record<string, string>;
+}
+
+export interface ActivityNotification {
+  id: string;
+  type: 'transaction' | 'bill' | 'goal' | 'stock' | 'settlement';
+  title: string;
+  message: string;
+  actorName: string;
+  actorAvatar?: string;
+  timestamp: string;
+  read: boolean;
+  linkTab?: string;
 }
 
 export interface Category {

@@ -5,10 +5,13 @@ import {
   User, 
   Settings, 
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  Bell
 } from 'lucide-react';
 import { NPIcon } from '../common/NPIcon';
 import { CurrencyConverterModal } from '../common/CurrencyConverterModal';
+import { UserAvatar } from '../common/UserAvatar';
+import { ActivityNotificationDrawer } from './ActivityNotificationDrawer';
 
 interface AppHeaderProps {
   onOpenProfile: () => void;
@@ -29,10 +32,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
     refreshSync,
     exchangeRate,
     isRateLoading,
+    notifications,
   } = useFinance();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isConverterOpen, setIsConverterOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  const unreadCount = notifications?.filter(n => !n.read).length || 0;
 
   if (!currentUser) return null;
 
@@ -107,16 +114,32 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
             </button>
           </div>
 
+          {/* Activity Notifications Bell */}
+          <button
+            type="button"
+            onClick={() => setIsNotificationsOpen(true)}
+            title="Activity Notifications"
+            className="relative p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-slate-300 hover:text-white transition-all active:scale-95 cursor-pointer"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center animate-pulse shadow-md">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
           {/* User Avatar with Profile Menu */}
           <div className="relative">
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               className="flex items-center gap-1.5 p-1 rounded-full bg-slate-800/90 border border-white/15 hover:border-indigo-500/50 transition-all focus:outline-none"
             >
-              <img 
+              <UserAvatar 
                 src={currentUser.avatarUrl} 
-                alt={currentUser.name} 
-                className="w-8 h-8 rounded-full object-cover ring-2 ring-indigo-500/60" 
+                name={currentUser.name} 
+                size="md"
+                ringColor="ring-indigo-500/60"
               />
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 mr-1" />
             </button>
@@ -128,10 +151,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
                   {/* Current user */}
                   <div className="px-3 py-2.5 border-b border-white/10 mb-1">
                     <div className="flex items-center gap-2.5">
-                      <img 
+                      <UserAvatar 
                         src={currentUser.avatarUrl} 
-                        alt={currentUser.name} 
-                        className="w-8 h-8 rounded-full object-cover ring-2 ring-emerald-500/50" 
+                        name={currentUser.name} 
+                        size="md"
+                        ringColor="ring-emerald-500/50" 
                       />
                       <div>
                         <p className="text-sm font-bold text-white flex items-center gap-1">
@@ -147,10 +171,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
                   {partner && (
                     <div className="px-3 py-2.5 border-b border-white/10 mb-1">
                       <div className="flex items-center gap-2.5">
-                        <img 
+                        <UserAvatar 
                           src={partner.avatarUrl} 
-                          alt={partner.name} 
-                          className="w-8 h-8 rounded-full object-cover ring-2 ring-indigo-500/50" 
+                          name={partner.name} 
+                          size="md"
+                          ringColor="ring-indigo-500/50" 
                         />
                         <div>
                           <p className="text-sm font-bold text-white flex items-center gap-1">
@@ -226,6 +251,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenProfile, onReplaySpl
       <CurrencyConverterModal
         isOpen={isConverterOpen}
         onClose={() => setIsConverterOpen(false)}
+      />
+
+      <ActivityNotificationDrawer
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
       />
     </header>
   );

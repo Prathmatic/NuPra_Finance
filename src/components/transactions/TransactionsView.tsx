@@ -11,7 +11,10 @@ import {
   Lock,
   Flag,
   MessageSquare,
-  Target
+  Target,
+  CheckSquare,
+  Square,
+  Check
 } from 'lucide-react';
 import { formatCurrency, formatDate, getGoalSavingsTitle } from '../../utils/formatters';
 import { CategoryIcon } from '../common/CategoryIcon';
@@ -20,6 +23,7 @@ import { EditTransactionModal } from './EditTransactionModal';
 import { ExportStatementModal } from './ExportStatementModal';
 import { TransactionActivityDrawer } from './TransactionActivityDrawer';
 import { Transaction } from '../../types/finance';
+import { UserAvatar } from '../common/UserAvatar';
 
 interface TransactionsViewProps {
   onOpenAddModal: () => void;
@@ -48,6 +52,32 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+
+  const toggleSelectTx = (id: string) => {
+    setSelectedTxIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedTxIds.size === filteredList.length) {
+      setSelectedTxIds(new Set());
+    } else {
+      setSelectedTxIds(new Set(filteredList.map(t => t.id)));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedTxIds.size === 0) return;
+    selectedTxIds.forEach(id => deleteTransaction(id));
+    setSelectedTxIds(new Set());
+    setIsSelectMode(false);
+  };
 
   const flaggedCount = useMemo(() => {
     return transactions.filter(t => t.isFlagged).length;
@@ -70,7 +100,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
       }
 
       // User filter
-      if (selectedUser === 'me' && t.userId !== currentUser!.id) return false;
+      if (selectedUser === 'me' && (!currentUser || t.userId !== currentUser.id)) return false;
       if (selectedUser === 'partner' && partner && t.userId !== partner.id) return false;
 
       // Type filter
@@ -162,6 +192,22 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
           </button>
 
           <button
+            onClick={() => {
+              setIsSelectMode(!isSelectMode);
+              if (isSelectMode) setSelectedTxIds(new Set());
+            }}
+            className={`p-2 px-2.5 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-semibold ${
+              isSelectMode
+                ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                : 'bg-slate-900/80 border-white/10 text-slate-400 hover:text-white'
+            }`}
+            title="Multi-select mode for bulk actions"
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{isSelectMode ? 'Cancel' : 'Select'}</span>
+          </button>
+
+          <button
             onClick={() => setIsExportOpen(true)}
             className="p-2 px-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-indigo-300 hover:text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
             title="Export bank statement (CSV or PDF)"
@@ -232,7 +278,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                 className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-white/10 text-white text-xs"
               >
                 <option value="all">Everyone (Couple)</option>
-                <option value="me">{currentUser!.name} (Me)</option>
+                <option value="me">{currentUser?.name || 'Me'} (Me)</option>
                 {partner && <option value="partner">{partner.name} (Partner)</option>}
               </select>
             </div>
@@ -302,11 +348,15 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
             const commentsCount = tx.comments?.length || 0;
             const { displayTitle, isGoalSavings } = getGoalSavingsTitle(tx);
 
+            const isSelected = selectedTxIds.has(tx.id);
+
             return (
               <div
                 key={tx.id}
                 className={`glass-card p-3 rounded-2xl border transition-all ${
-                  isFlagged 
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-950/30'
+                    : isFlagged 
                     ? 'border-amber-500/40 bg-amber-950/10' 
                     : isExpanded 
                     ? 'border-indigo-500/40 bg-slate-900/90' 
@@ -317,7 +367,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
               >
                 <div 
                   onClick={() => {
-                    if (isGoalSavings) {
+                    if (isSelectMode) {
+                      toggleSelectTx(tx.id);
+                    } else if (isGoalSavings) {
                       setExpandedTxId(isExpanded ? null : tx.id);
                     } else if (isMyTx) {
                       setEditingTx(tx);
@@ -326,15 +378,20 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                     }
                   }}
                   className="flex items-center justify-between gap-3 cursor-pointer"
-                  title={
-                    isGoalSavings
-                      ? "Click to view goal details & discussion"
-                      : isMyTx 
-                      ? "Click to edit (or use comment button below)" 
-                      : "Click to view discussion & comments"
-                  }
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {isSelectMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelectTx(tx.id);
+                        }}
+                        className="p-1 rounded-lg hover:bg-white/10 transition-all text-indigo-400"
+                      >
+                        {isSelected ? <CheckSquare className="w-5 h-5 fill-indigo-500 text-white" /> : <Square className="w-5 h-5 text-slate-500" />}
+                      </button>
+                    )}
                     <div
                       className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
                       style={{ 
@@ -393,9 +450,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
                         {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, currency)}
                       </p>
                       <div className="flex items-center justify-end gap-1 mt-0.5">
-                        {getTxAvatar(tx) && (
-                          <img src={getTxAvatar(tx)} alt={tx.userName} className="w-3.5 h-3.5 rounded-full object-cover" />
-                        )}
+                        <UserAvatar src={getTxAvatar(tx)} name={tx.userName} size="xs" />
                         <span className="text-[10px] text-slate-400">{tx.userName}</span>
                       </div>
                     </div>
@@ -499,6 +554,46 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ onOpenAddMod
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
       />
+
+      {/* Floating Bulk Actions Bar */}
+      {isSelectMode && (
+        <div className="fixed bottom-20 left-4 right-4 max-w-md mx-auto z-40 p-3 rounded-2xl glass-card bg-slate-900/95 border border-indigo-500/40 shadow-2xl flex items-center justify-between gap-2 animate-in slide-in-from-bottom-5">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-1 rounded-xl bg-indigo-500/20 text-indigo-300 font-bold text-xs border border-indigo-500/30">
+              {selectedTxIds.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              className="text-xs text-slate-300 hover:text-white underline font-medium"
+            >
+              {selectedTxIds.size === filteredList.length ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSelectMode(false);
+                setSelectedTxIds(new Set());
+              }}
+              className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={selectedTxIds.size === 0}
+              onClick={handleBulkDelete}
+              className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-1.5 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete ({selectedTxIds.size})</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

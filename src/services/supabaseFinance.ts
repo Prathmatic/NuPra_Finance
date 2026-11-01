@@ -314,13 +314,14 @@ export async function loadWorkspace(): Promise<UserWorkspace> {
         const parsed = JSON.parse(budgetMeta.name);
         if (typeof parsed === 'object' && parsed !== null) {
           parsedBudgets = {
-            couple: Number(parsed.couple) || Number(vaultRow.monthly_budget) || 0,
+            couple: parsed.couple !== undefined ? Number(parsed.couple) : (Number(vaultRow.monthly_budget) || 0),
             me: Number(parsed.me) || 0,
             partner: Number(parsed.partner) || 0,
             userBudgets: typeof parsed.userBudgets === 'object' && parsed.userBudgets !== null ? parsed.userBudgets : {},
             monthlyBudgets: typeof parsed.monthlyBudgets === 'object' && parsed.monthlyBudgets !== null ? parsed.monthlyBudgets : {},
             bankBalances: typeof parsed.bankBalances === 'object' && parsed.bankBalances !== null ? parsed.bankBalances : {},
             userCurrencies: typeof parsed.userCurrencies === 'object' && parsed.userCurrencies !== null ? parsed.userCurrencies : {},
+            scratchResetVersion: typeof parsed.scratchResetVersion === 'string' ? parsed.scratchResetVersion : undefined,
           };
         }
       } catch {}

@@ -15,7 +15,8 @@ import {
   CurrencyCode,
   BudgetsConfig,
   MonthlyBudgetRecord,
-  TransactionComment
+  TransactionComment,
+  ActivityNotification
 } from '../types/finance';
 import { CloudStore } from '../services/cloudSync';
 import {
@@ -79,6 +80,14 @@ interface FinanceContextType {
   getBudgetForMonth: (monthKey: string) => { coupleLimit: number; myLimit: number; partnerLimit: number; isCustomMonth: boolean };
   bankBalances: Record<string, number>;
   updateBankBalance: (userId: string, initialBalance: number) => void;
+  updateMonthlyNote: (monthKey: string, note: string) => void;
+  clearAllAmountsToZero: () => Promise<void>;
+
+  // Notifications
+  notifications: ActivityNotification[];
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
+  clearNotifications: () => void;
 
   // Auth
   completeOnboarding: (user: UserProfile, vault: CoupleVault) => Promise<void>;
@@ -121,6 +130,7 @@ interface FinanceContextType {
 
   // Bill Actions
   addBill: (bill: Omit<BillItem, 'id' | 'isPaid'> & { isPaid?: boolean }) => void;
+  updateBill: (updatedBill: BillItem) => void;
   markBillAsPaid: (billId: string, paidByUserId?: string, paidByUserName?: string) => void;
   deleteBill: (id: string) => void;
   settleBill: (billId: string, recordTx?: boolean) => void;
@@ -214,6 +224,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Monotonic snapshot timestamp tracker to reject out-of-order stale network polls
   const lastAppliedSnapshotTimestampRef = useRef<number>(0);
+  const clearAllAmountsToZeroRef = useRef<() => Promise<void>>(async () => {});
 
   // Synchronize refs when state updates
   useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
@@ -233,6 +244,51 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Global Toast notification state
   const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  // In-app activity notifications
+  const [notifications, setNotifications] = useState<ActivityNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('nupra_activity_notifications');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const addActivityNotification = useCallback((notification: Omit<ActivityNotification, 'id' | 'timestamp' | 'read'>) => {
+    const newNotif: ActivityNotification = {
+      ...notification,
+      id: createRecordId('notif'),
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+    setNotifications(prev => {
+      const updated = [newNotif, ...prev].slice(0, 50);
+      try { localStorage.setItem('nupra_activity_notifications', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
+
+  const markNotificationAsRead = useCallback((id: string) => {
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, read: true } : n);
+      try { localStorage.setItem('nupra_activity_notifications', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(() => {
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      try { localStorage.setItem('nupra_activity_notifications', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+    try { localStorage.removeItem('nupra_activity_notifications'); } catch {}
+  }, []);
 
   // Sync live ECB exchange rate on mount and window focus
   useEffect(() => {
@@ -553,7 +609,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       Object.entries(rawLoadedBudgets.monthlyBudgets).forEach(([mKey, rMonth]) => {
         const lMonth = mergedMonthlyBudgets[mKey] || {};
         mergedMonthlyBudgets[mKey] = {
-          couple: rMonth.couple !== undefined && rMonth.couple > 0 ? rMonth.couple : (lMonth.couple || 0),
+          couple: rMonth.couple !== undefined ? rMonth.couple : (lMonth.couple ?? 0),
           me: rMonth.me ?? lMonth.me ?? 0,
           partner: rMonth.partner ?? lMonth.partner ?? 0,
           userBudgets: {
@@ -569,21 +625,21 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Resolve individual budgets strictly by user ID to prevent swap between devices
     const resolvedMe = currentUserId
-      ? (mergedUserBudgets[currentUserId] && mergedUserBudgets[currentUserId] > 0
+      ? (mergedUserBudgets[currentUserId] !== undefined
           ? mergedUserBudgets[currentUserId]
-          : (rawLoadedBudgets?.me || localBudgets?.me || activeVault?.myBudget || 0))
+          : (rawLoadedBudgets?.me ?? localBudgets?.me ?? activeVault?.myBudget ?? 0))
       : 0;
 
     const resolvedPartner = partnerId
-      ? (mergedUserBudgets[partnerId] && mergedUserBudgets[partnerId] > 0
+      ? (mergedUserBudgets[partnerId] !== undefined
           ? mergedUserBudgets[partnerId]
-          : (rawLoadedBudgets?.partner || localBudgets?.partner || activeVault?.partnerBudget || 0))
+          : (rawLoadedBudgets?.partner ?? localBudgets?.partner ?? activeVault?.partnerBudget ?? 0))
       : 0;
 
-    // Couple budget: prefer remote's value if non-zero, else keep local
-    const coupleBudget = (rawLoadedBudgets?.couple && rawLoadedBudgets.couple > 0)
+    // Couple budget: prefer remote's value if defined, else keep local
+    const coupleBudget = (rawLoadedBudgets?.couple !== undefined)
       ? rawLoadedBudgets.couple
-      : ((localBudgets?.couple && localBudgets.couple > 0) ? localBudgets.couple : (activeVault?.monthlyBudget || 0));
+      : (localBudgets?.couple !== undefined ? localBudgets.couple : (activeVault?.monthlyBudget || 0));
 
     // Bank balances: merge remote + local, remote wins per user
     const mergedBankBalances: Record<string, number> = {
@@ -599,6 +655,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       monthlyBudgets: mergedMonthlyBudgets,
       bankBalances: mergedBankBalances,
       userCurrencies: mergedUserCurrencies,
+      scratchResetVersion: rawLoadedBudgets?.scratchResetVersion || localBudgets?.scratchResetVersion,
     };
 
     // 6. Currency (User-independent preference: preserve local user's choice)
@@ -752,6 +809,15 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         else applyWorkspaceSnapshot(emptySnapshot());
         setIsOnboarded(Boolean(workspace.currentUser && workspace.vault && workspace.partner));
         setAuthError('');
+
+        // Automatically trigger one-time scratch reset to 0 across both partners if not yet applied
+        const hasRunResetLocal = typeof localStorage !== 'undefined' && localStorage.getItem('nupra_scratch_reset_20261031') === 'true';
+        const hasRunResetRemote = workspace.snapshot?.budgets?.scratchResetVersion === '2026-10-31';
+        if (!hasRunResetLocal && !hasRunResetRemote && workspace.vault) {
+          queueMicrotask(() => {
+            void clearAllAmountsToZeroRef.current?.();
+          });
+        }
       } catch (error) {
         if (active) setAuthError(error instanceof Error ? error.message : 'Could not load your account.');
       } finally {
@@ -767,6 +833,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       subscription.unsubscribe();
     };
   }, [applyWorkspaceSnapshot]);
+
+  // Offline / local storage auto-reset check
+  useEffect(() => {
+    const hasRunResetLocal = typeof localStorage !== 'undefined' && localStorage.getItem('nupra_scratch_reset_20261031') === 'true';
+    if (!hasRunResetLocal && (!isSupabaseConfigured || (!currentUser && !isAuthLoading))) {
+      queueMicrotask(() => {
+        void clearAllAmountsToZeroRef.current?.();
+      });
+    }
+  }, [currentUser, isAuthLoading]);
 
   // Realtime updates are primary; polling covers reconnects and suspended mobile apps.
   useEffect(() => {
@@ -1119,6 +1195,154 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     showToast('Bank balance updated successfully', 'success');
   }, [triggerSyncFlash, pushToCloud, showToast]);
 
+  /* ─── Clear All Amounts to 0 (Start From Scratch) ─────────────────────── */
+  const clearAllAmountsToZero = useCallback(async () => {
+    // 1. Transactions: reset to []
+    const updatedTxs: Transaction[] = [];
+
+    // 2. Goals: keep titles/categories/colors, but reset targetAmount to 0, currentAmount to 0, contributions to []
+    const updatedGoals: FinanceGoal[] = (goalsRef.current || []).map(g => ({
+      ...g,
+      targetAmount: 0,
+      currentAmount: 0,
+      spentAmount: 0,
+      isCompleted: false,
+      completedDate: undefined,
+      contributions: [],
+      pendingChange: null,
+    }));
+
+    // 3. Bills: delete goal-based bills entirely (they are created from goals), keep other bills but reset amounts
+    // Also add tombstones for all bills so remote syncs won't resurrect them
+    const allBills = billsRef.current || [];
+    allBills.forEach(b => { if (b?.id) deletedBillIdsRef.current.add(b.id); });
+    pendingCreatedBillIdsRef.current.clear();
+    const updatedBills: BillItem[] = allBills
+      .filter(b => !b.isGoalBased)
+      .map(b => ({
+        ...b,
+        amount: 0,
+        isPaid: false,
+        paidDate: undefined,
+        paidByUserId: undefined,
+        paidByUserName: undefined,
+        isSettled: false,
+        settledDate: undefined,
+      }));
+
+    // 4. Stocks: reset shares to 0 and investedAmount to 0
+    const updatedStocks: StockInvestment[] = (stocksRef.current || []).map(s => ({
+      ...s,
+      shares: 0,
+      investedAmount: 0,
+    }));
+
+    // 5. Bank balances: both partners set to 0
+    const currentUserId = currentUserRef.current?.id;
+    const activeVault = vaultRef.current || CloudStore.getVault();
+    const partnerId = partner?.id || (activeVault?.partner1?.id === currentUserId ? activeVault?.partner2?.id : activeVault?.partner1?.id);
+
+    const clearedBankBalances: Record<string, number> = {};
+    if (currentUserId) clearedBankBalances[currentUserId] = 0;
+    if (partnerId) clearedBankBalances[partnerId] = 0;
+    if (activeVault?.partner1?.id) clearedBankBalances[activeVault.partner1.id] = 0;
+    if (activeVault?.partner2?.id) clearedBankBalances[activeVault.partner2.id] = 0;
+
+    // 6. Budgets: couple 0, me 0, partner 0, userBudgets 0 for both partners, monthlyBudgets {}
+    const clearedUserBudgets: Record<string, number> = {};
+    if (currentUserId) clearedUserBudgets[currentUserId] = 0;
+    if (partnerId) clearedUserBudgets[partnerId] = 0;
+    if (activeVault?.partner1?.id) clearedUserBudgets[activeVault.partner1.id] = 0;
+    if (activeVault?.partner2?.id) clearedUserBudgets[activeVault.partner2.id] = 0;
+
+    const currentBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0 };
+    const clearedBudgets: BudgetsConfig = {
+      couple: 0,
+      me: 0,
+      partner: 0,
+      userBudgets: clearedUserBudgets,
+      monthlyBudgets: {},
+      bankBalances: clearedBankBalances,
+      userCurrencies: currentBudgets.userCurrencies || {},
+      scratchResetVersion: '2026-10-31',
+    };
+
+    // 7. Vault
+    let updatedVault: CoupleVault | null = null;
+    if (activeVault) {
+      updatedVault = {
+        ...activeVault,
+        monthlyBudget: 0,
+        myBudget: 0,
+        partnerBudget: 0,
+        bankBalances: clearedBankBalances,
+      };
+    }
+
+    // Set tombstones for all existing data so remote snapshot polls won't resurrect them
+    (transactionsRef.current || []).forEach(t => {
+      if (t?.id) deletedTxIdsRef.current.add(t.id);
+    });
+    pendingCreatedTxIdsRef.current.clear();
+    (goalsRef.current || []).forEach(g => {
+      if (g?.id) deletedGoalIdsRef.current.add(g.id);
+    });
+    pendingCreatedGoalIdsRef.current.clear();
+    allBills.forEach(b => {
+      if (b?.id) deletedBillIdsRef.current.add(b.id);
+    });
+    pendingCreatedBillIdsRef.current.clear();
+    (stocksRef.current || []).forEach(s => {
+      if (s?.id) deletedStockIdsRef.current.add(s.id);
+    });
+    pendingCreatedStockIdsRef.current.clear();
+
+    // Update in-memory state
+    setTransactions(updatedTxs);
+    setGoals(updatedGoals);
+    setBills(updatedBills);
+    setStocks(updatedStocks);
+    setBudgets(clearedBudgets);
+    if (updatedVault) setVault(updatedVault);
+
+    // Update synchronous refs
+    transactionsRef.current = updatedTxs;
+    goalsRef.current = updatedGoals;
+    billsRef.current = updatedBills;
+    stocksRef.current = updatedStocks;
+    budgetsRef.current = clearedBudgets;
+    if (updatedVault) vaultRef.current = updatedVault;
+    lastLocalWriteTimeRef.current = Date.now();
+
+    // Persist to CloudStore (localStorage)
+    CloudStore.saveTransactions(updatedTxs);
+    CloudStore.saveGoals(updatedGoals);
+    CloudStore.saveBills(updatedBills);
+    CloudStore.saveStocks(updatedStocks);
+    CloudStore.saveBudgets(clearedBudgets);
+    if (updatedVault) CloudStore.saveVault(updatedVault);
+    try {
+      localStorage.setItem('nupra_scratch_reset_20261031', 'true');
+    } catch {}
+
+    triggerSyncFlash();
+
+    // Push to Supabase and broadcast to partner via WebSocket
+    await pushToCloud({
+      transactions: updatedTxs,
+      goals: updatedGoals,
+      bills: updatedBills,
+      stocks: updatedStocks,
+      budgets: clearedBudgets,
+    });
+
+    showToast('All amounts reset to 0 across both partners. You can now start filling everything up from scratch!', 'success');
+  }, [partner, triggerSyncFlash, pushToCloud, showToast]);
+
+  useEffect(() => {
+    clearAllAmountsToZeroRef.current = clearAllAmountsToZero;
+  }, [clearAllAmountsToZero]);
+
   /* ─── Transactions ────────────────────────────────────────────────────── */
   const addTransaction = (tx: Omit<Transaction, 'id' | 'createdAt'>) => {
     if (!currentUser) return;
@@ -1170,7 +1394,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
     } catch (err) {
       console.error('Failed to add transaction:', err);
-      showToast(`${tx.type === 'expense' ? 'Expense' : 'Income'} recorded successfully`, 'success');
+      showToast('Failed to record. Please try again.', 'error');
     }
   };
 
@@ -1183,11 +1407,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     try {
+      // Preserve original ownership — only strip data URLs from avatar
       const cleanUpdatedTx: Transaction = {
         ...updatedTx,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        userAvatar: (currentUser.avatarUrl && !currentUser.avatarUrl.startsWith('data:')) ? currentUser.avatarUrl : undefined,
+        userAvatar: (updatedTx.userAvatar && !updatedTx.userAvatar.startsWith('data:')) ? updatedTx.userAvatar : undefined,
       };
       const safeTxs = (transactionsRef.current || []).filter(Boolean);
       const updated = sortTransactionsDesc(
@@ -1202,7 +1425,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       showToast('Transaction updated successfully', 'success');
     } catch (err) {
       console.error('Failed to update transaction:', err);
-      showToast('Transaction updated successfully', 'success');
+      showToast('Failed to update transaction. Please try again.', 'error');
     }
   };
 
@@ -1489,6 +1712,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
     void pushToCloud({ goals: updated });
+    showToast('Comment added to goal', 'success');
   };
 
   const requestGoalChange = (goalId: string, proposedChanges: GoalChangeProposal) => {
@@ -1820,16 +2044,52 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       CloudStore.saveGoals(updatedGoals);
     }
 
-    setBills(updatedBills);
-    billsRef.current = updatedBills;
-    CloudStore.saveBills(updatedBills);
+    // Auto-renew recurring bills: create the next cycle when paid
+    let finalBills = updatedBills;
+    if (paidBill && (paidBill.recurring === 'monthly' || paidBill.recurring === 'yearly') && !paidBill.isGoalBased) {
+      const dueDateObj = new Date(paidBill.dueDate);
+      if (paidBill.recurring === 'monthly') {
+        dueDateObj.setMonth(dueDateObj.getMonth() + 1);
+      } else {
+        dueDateObj.setFullYear(dueDateObj.getFullYear() + 1);
+      }
+      const nextDueDate = dueDateObj.toISOString().split('T')[0];
+      // Only create if there isn't already a pending bill with same title and next due date
+      const alreadyExists = finalBills.some(b => b.title === paidBill!.title && b.dueDate === nextDueDate && !b.isPaid);
+      if (!alreadyExists) {
+        const renewedBill: BillItem = {
+          ...paidBill,
+          id: createRecordId('bill'),
+          isPaid: false,
+          paidDate: undefined,
+          paidByUserId: undefined,
+          paidByUserName: undefined,
+          isSettled: false,
+          settledDate: undefined,
+          dueDate: nextDueDate,
+          payerId: undefined,
+          payerName: undefined,
+          borrowerId: undefined,
+          borrowerName: undefined,
+        };
+        pendingCreatedBillIdsRef.current.add(renewedBill.id);
+        finalBills = [renewedBill, ...finalBills];
+      }
+    }
+
+    setBills(finalBills);
+    billsRef.current = finalBills;
+    CloudStore.saveBills(finalBills);
     setTransactions(updatedTransactions);
     transactionsRef.current = updatedTransactions;
     CloudStore.saveTransactions(updatedTransactions);
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions, goals: updatedGoals });
-    showToast(`Bill marked as paid by ${payerName}`, 'success');
+    void pushToCloud({ bills: finalBills, transactions: updatedTransactions, goals: updatedGoals });
+    const renewMsg = paidBill?.recurring && paidBill.recurring !== 'none' && !paidBill.isGoalBased
+      ? ` · Next ${paidBill.recurring === 'monthly' ? 'month' : 'year'}'s bill scheduled ↻`
+      : '';
+    showToast(`Bill marked as paid by ${payerName}${renewMsg}`, 'success');
   };
 
   const settleBill = (billId: string, recordTx: boolean = true) => {
@@ -1941,8 +2201,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const debtSummary = calculateSplitwiseBalance(billsRef.current || [], currentUser.id, partner?.id);
     const absAmount = Math.abs(debtSummary.netAmount);
 
+    // Only settle bills that are in the unsettled debt list (not all bills with a payer field)
+    const unsettledDebtIds = new Set(debtSummary.unsettledBills.map(b => b.id));
     const updatedBills = (billsRef.current || []).map(b => {
-      if (debtSummary.unsettledBills.some(ub => ub.id === b.id) || (!b.isSettled && (b.paidByUserId || b.payerId))) {
+      if (unsettledDebtIds.has(b.id)) {
         return {
           ...b,
           isSettled: true,
@@ -2033,6 +2295,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Also remove associated paid-transaction(s) for this bill so money is refunded
     let updatedTransactions = transactionsRef.current || [];
+    let updatedGoals = goalsRef.current || [];
     if (billToDelete) {
       const billTitlePatterns = [
         `Bill Paid: ${billToDelete.title}`,
@@ -2049,13 +2312,76 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         transactionsRef.current = updatedTransactions;
         CloudStore.saveTransactions(updatedTransactions);
       }
+
+      // BUG-05 FIX: If this was a goal-based bill, revert the linked goal's completion state
+      if (billToDelete.isGoalBased && billToDelete.goalId) {
+        updatedGoals = updatedGoals.map(g => {
+          if (g.id !== billToDelete.goalId) return g;
+          // Remove contributions added when the bill was paid
+          const revertedContributions = (g.contributions || []).filter(
+            c => !(c.note?.includes('Bill paid:') || c.note?.includes('Goal Expense'))
+          );
+          const revertedSpent = Math.max(0, (g.spentAmount || 0) - (billToDelete.amount || 0));
+          const revertedCurrentAmount = revertedContributions.reduce((sum, c) => sum + c.amount, 0);
+          const stillCompleted = revertedCurrentAmount >= g.targetAmount && g.targetAmount > 0;
+          return {
+            ...g,
+            spentAmount: revertedSpent,
+            isCompleted: stillCompleted,
+            completedDate: stillCompleted ? g.completedDate : undefined,
+            billId: undefined,
+            contributions: revertedContributions,
+          };
+        });
+        setGoals(updatedGoals);
+        goalsRef.current = updatedGoals;
+        CloudStore.saveGoals(updatedGoals);
+      }
     }
 
     triggerSyncFlash();
     lastLocalWriteTimeRef.current = Date.now();
-    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions });
+    void pushToCloud({ bills: updatedBills, transactions: updatedTransactions, goals: updatedGoals });
     showToast('Bill removed and associated expenses refunded', 'info');
   };
+
+  const updateBill = useCallback((updatedBill: BillItem) => {
+    const updatedBills = (billsRef.current || []).map(b => b.id === updatedBill.id ? updatedBill : b);
+    setBills(updatedBills);
+    billsRef.current = updatedBills;
+    CloudStore.saveBills(updatedBills);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ bills: updatedBills });
+    addActivityNotification({
+      type: 'bill',
+      title: 'Bill Updated',
+      message: `${currentUserRef.current?.name || 'Partner'} modified bill "${updatedBill.title}"`,
+      actorName: currentUserRef.current?.name || 'User',
+      actorAvatar: currentUserRef.current?.avatarUrl,
+      linkTab: 'bills',
+    });
+    showToast(`Bill "${updatedBill.title}" updated`, 'success');
+  }, [triggerSyncFlash, pushToCloud, showToast, addActivityNotification]);
+
+  const updateMonthlyNote = useCallback((monthKey: string, note: string) => {
+    const activeBudgets = budgetsRef.current || { couple: 0, me: 0, partner: 0, userBudgets: {}, bankBalances: {} };
+    const updatedNotes = {
+      ...(activeBudgets.monthlyNotes || {}),
+      [monthKey]: note,
+    };
+    const safeBudgets: BudgetsConfig = {
+      ...activeBudgets,
+      monthlyNotes: updatedNotes,
+    };
+    setBudgets(safeBudgets);
+    budgetsRef.current = safeBudgets;
+    CloudStore.saveBudgets(safeBudgets);
+    triggerSyncFlash();
+    lastLocalWriteTimeRef.current = Date.now();
+    void pushToCloud({ budgets: safeBudgets });
+    showToast(`Note for ${monthKey} saved`, 'success');
+  }, [triggerSyncFlash, pushToCloud, showToast]);
 
   return (
     <FinanceContext.Provider
@@ -2071,6 +2397,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         budgets, updateBudgets, getBudgetForMonth,
         bankBalances: budgets.bankBalances || vault?.bankBalances || {},
         updateBankBalance,
+        updateMonthlyNote,
+        clearAllAmountsToZero,
+        notifications,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications,
         completeOnboarding,
         signOut: handleSignOut,
         setActiveTab, setViewMode, setCurrency,
@@ -2081,7 +2413,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addGoal, updateGoal, contributeToGoal, deleteGoal, flagGoal, addGoalComment,
         requestGoalChange, approveGoalChange, rejectGoalChange, cancelGoalChange,
         addStock, updateStock, deleteStock,
-        addBill, markBillAsPaid, deleteBill,
+        addBill, updateBill, markBillAsPaid, deleteBill,
         settleBill, settleAllBills,
         refreshSync: pullFromCloud,
         exchangeRate: exchangeRateData.rate,
